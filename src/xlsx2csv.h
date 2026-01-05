@@ -97,6 +97,7 @@ typedef struct {
     workbookInfo  workbook;
     sharedStrings shared_strings;
     styleInfo     styles;
+    bool          has_date_error; /* Flag for date format errors (Python compatibility) */
 } xlsx2csvConverter;
 
 /* Function declarations */

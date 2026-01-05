@@ -13,8 +13,13 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-PYTHON_XLSX2CSV="/usr/bin/xlsx2csv"
+PYTHON_XLSX2CSV="xlsx2csv_python"
 C_XLSX2CSV="../xlsx2csv"
+
+# Also check build directory
+if [ ! -f "$C_XLSX2CSV" ] && [ -f "../build/xlsx2csv" ]; then
+    C_XLSX2CSV="../build/xlsx2csv"
+fi
 
 if [ ! -f "$C_XLSX2CSV" ]; then
     echo -e "${RED}Error: C xlsx2csv not found at $C_XLSX2CSV${NC}"
@@ -22,8 +27,8 @@ if [ ! -f "$C_XLSX2CSV" ]; then
     exit 1
 fi
 
-if [ ! -f "$PYTHON_XLSX2CSV" ]; then
-    echo -e "${RED}Error: Python xlsx2csv not found at $PYTHON_XLSX2CSV${NC}"
+if ! command -v "$PYTHON_XLSX2CSV" &> /dev/null; then
+    echo -e "${RED}Error: Python xlsx2csv not found (tried: $PYTHON_XLSX2CSV)${NC}"
     echo "Please install Python xlsx2csv"
     exit 1
 fi
@@ -33,7 +38,7 @@ mkdir -p actual
 
 echo "====================================="
 echo "xlsx2csv Test Suite"
-echo "Testing against Python xlsx2csv $(xlsx2csv --version 2>&1 | head -1)"
+echo "Testing against Python xlsx2csv ($PYTHON_XLSX2CSV)"
 echo "====================================="
 echo
 
@@ -74,6 +79,60 @@ run_test() {
         TESTS_FAILED=$((TESTS_FAILED + 1))
         # Keep the expected file for debugging
     fi
+}
+
+# Function to run a test that expects error (exit code 1)
+run_error_test() {
+    local test_name="$1"
+    local xlsx_file="$2"
+    local options="$3"
+    
+    echo -n "Testing $test_name... "
+    
+    # Temporarily disable exit on error for these commands
+    set +e
+    
+    # Run Python version (expecting it to fail with exit code 1)
+    # Note: options are passed as separate arguments, not as a single string
+    $PYTHON_XLSX2CSV $options "$xlsx_file" > "/tmp/expected_${test_name}_stdout.txt" 2> "/tmp/expected_${test_name}_stderr.txt"
+    local python_exit=$?
+    
+    # Run C version (expecting it to fail with exit code 1)
+    $C_XLSX2CSV $options "$xlsx_file" > "actual/${test_name}_stdout.txt" 2> "actual/${test_name}_stderr.txt"
+    local c_exit=$?
+    
+    # Re-enable exit on error
+    set -e
+    
+    # Check if both have the same exit code
+    if [ $python_exit -ne $c_exit ]; then
+        echo -e "${RED}FAIL${NC}"
+        echo "  Exit codes differ: Python=$python_exit, C=$c_exit"
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        return
+    fi
+    
+    # Compare stdout
+    if ! diff -q "/tmp/expected_${test_name}_stdout.txt" "actual/${test_name}_stdout.txt" >/dev/null 2>&1; then
+        echo -e "${RED}FAIL${NC}"
+        echo "  stdout differs from Python version"
+        echo "  Run: diff /tmp/expected_${test_name}_stdout.txt actual/${test_name}_stdout.txt"
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        return
+    fi
+    
+    # Compare stderr
+    if ! diff -q "/tmp/expected_${test_name}_stderr.txt" "actual/${test_name}_stderr.txt" >/dev/null 2>&1; then
+        echo -e "${RED}FAIL${NC}"
+        echo "  stderr differs from Python version"
+        echo "  Run: diff /tmp/expected_${test_name}_stderr.txt actual/${test_name}_stderr.txt"
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        return
+    fi
+    
+    echo -e "${GREEN}PASS${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    rm -f "/tmp/expected_${test_name}_stdout.txt" "/tmp/expected_${test_name}_stderr.txt"
 }
 
 # Basic tests
@@ -222,6 +281,13 @@ if [ -f "test_data/number_formats.xlsx" ]; then
     echo -e "\n=== Number Formats Tests ==="
     run_test "number_formats_default" "test_data/number_formats.xlsx" ""
     run_test "number_formats_float04f" "test_data/number_formats.xlsx" "--floatformat %.04f"
+fi
+
+# Excel errors tests (tests error value handling like #VALUE!, #DIV/0!)
+if [ -f "test_data/excel_errors.xlsx" ]; then
+    echo -e "\n=== Excel Errors Tests ==="
+    run_error_test "excel_errors_sheet1" "test_data/excel_errors.xlsx" "-s 1"
+    run_error_test "excel_errors_sheet2" "test_data/excel_errors.xlsx" "-s 2"
 fi
 
 # Combination tests (stress testing)

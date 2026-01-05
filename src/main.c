@@ -267,6 +267,12 @@ int main(int argc, char **argv)
         result = xlsx2csv_convert(conv, outfile, sheetid, sheetname);
     }
 
+    /* Check for date format errors (matches Python behavior) */
+    if (conv->has_date_error) {
+        fprintf(stderr, "Error: potential invalid date format.\n\n");
+        result = -1;
+    }
+
     /* Cleanup */
     xlsx2csv_free(conv);
 

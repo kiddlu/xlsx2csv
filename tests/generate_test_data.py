@@ -477,6 +477,48 @@ def create_portfolio_tracking():
     wb.save("test_data/portfolio_tracking.xlsx")
     print("✓ portfolio_tracking.xlsx")
 
+def create_excel_errors_test():
+    """测试Excel错误值处理（#VALUE!, #DIV/0!, #N/A等）"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "ErrorValues"
+    
+    # 标题行
+    ws.append(["Type", "Value1", "Value2", "Value3", "Value4", "Value5"])
+    
+    # 正常数值行（带float格式）
+    ws.append(["Normal", 100.50, 200.75, 300.25, 400.50, 500.99])
+    for col in range(2, 7):
+        ws.cell(2, col).number_format = '0.00'
+    
+    # 包含#VALUE!错误的行（带float格式 - 这会触发Python的ValueError）
+    ws.append(["WithError", 100.50, 200.75, "#VALUE!", 400.25, 500.99])
+    for col in range(2, 7):
+        ws.cell(3, col).number_format = '0.00'
+    
+    # 这一行不应该被输出（因为上一行触发了错误）
+    ws.append(["AfterError", 600.00, 700.00, 800.00, 900.00, 1000.00])
+    for col in range(2, 7):
+        ws.cell(4, col).number_format = '0.00'
+    
+    # Sheet 2: 其他Excel错误类型
+    ws2 = wb.create_sheet("OtherErrors")
+    ws2.append(["ErrorType", "Value", "Description"])
+    
+    # #N/A 不会触发错误（Python专门排除了它）
+    ws2.append(["#N/A", "#N/A", "Not Available - should not trigger error"])
+    ws2.cell(2, 2).number_format = '0.00'
+    
+    # #DIV/0! 如果有数值格式也会触发错误
+    ws2.append(["#DIV/0!", "#DIV/0!", "Division by zero - should trigger error"])
+    ws2.cell(3, 2).number_format = '0.00'
+    
+    # 没有数值格式的错误值不会触发错误
+    ws2.append(["#REF!", "#REF!", "Invalid reference - no number format"])
+    
+    wb.save("test_data/excel_errors.xlsx")
+    print("✓ excel_errors.xlsx")
+
 # ============================================================================
 # 主函数 - Main
 # ============================================================================
@@ -499,6 +541,7 @@ def main():
     create_escaping_test()
     create_multisheet_complex_test()
     create_number_formats_test()
+    create_excel_errors_test()  # 新增测试
     
     print("\n=== 真实场景数据 ===")
     create_stock_data_1107()
@@ -509,9 +552,9 @@ def main():
     create_portfolio_tracking()
     
     print("\n✓ 所有测试数据生成完成！")
-    print("  - 单元测试: 11个文件")
+    print("  - 单元测试: 12个文件")  # 更新数量
     print("  - 真实场景: 6个文件")
-    print("  - 总计: 17个测试文件")
+    print("  - 总计: 18个测试文件")  # 更新数量
 
 if __name__ == '__main__':
     main()

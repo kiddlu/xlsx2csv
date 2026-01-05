@@ -441,13 +441,6 @@ char *format_cell_value(const char        *value,
         return str_duplicate("");
     }
 
-    /* Handle Excel error values - preserve them as-is
-     * Common Excel errors: #DIV/0!, #N/A, #NAME?, #NULL!, #NUM!, #REF!, #VALUE!
-     */
-    if (value[0] == '#') {
-        return str_duplicate(value);
-    }
-
     /* Handle shared string */
     if (type_attr && strcmp(type_attr, "s") == 0) {
         int index = atoi(value);
@@ -468,11 +461,39 @@ char *format_cell_value(const char        *value,
         return str_duplicate(value);
     }
 
-    /* Handle numeric value with style */
+    /* Handle numeric value with style - check BEFORE handling Excel errors
+     * Python behavior: Even if value is #VALUE! (type='e'), if it has a numeric style
+     * (date/time/float), Python tries to convert it to float, which raises ValueError
+     */
     if (style_attr) {
-        int        style_id  = atoi(style_attr);
-        formatType ftype     = get_format_type(style_id, &conv->styles);
-        double     num_value = atof(value);
+        int        style_id = atoi(style_attr);
+        formatType ftype    = get_format_type(style_id, &conv->styles);
+
+        /* Python behavior: if format type is date/time/float and value is not #N/A,
+         * try to convert to float. If conversion fails (e.g., #VALUE!), raise error.
+         */
+        double num_value;
+        if ((ftype == FORMAT_DATE || ftype == FORMAT_TIME || ftype == FORMAT_FLOAT ||
+             ftype == FORMAT_PERCENTAGE) &&
+            strcmp(value, "#N/A") != 0) {
+            /* Check if value is a valid number */
+            char *endptr;
+            num_value = strtod(value, &endptr);
+
+            /* If conversion failed (endptr didn't advance or didn't reach end),
+             * this matches Python's ValueError/OverflowError case
+             */
+            if (endptr == value || (*endptr != '\0' && *endptr != ' ')) {
+                /* Invalid numeric value - set error flag */
+                conv->has_date_error = true;
+                return str_duplicate(value);
+            }
+        } else if (strcmp(value, "#N/A") == 0) {
+            /* #N/A is explicitly excluded - return as-is */
+            return str_duplicate(value);
+        } else {
+            num_value = atof(value);
+        }
 
         if (ftype == FORMAT_DATE) {
             /* Get the format string for datetime detection */

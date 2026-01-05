@@ -39,6 +39,9 @@ xlsx2csvConverter *xlsx2csv_create(const char *filename, xlsxOptions *options)
         return NULL;
     }
 
+    /* Initialize error flag */
+    conv->has_date_error = false;
+
     /* Initialize options */
     if (options) {
         memcpy(&conv->options, options, sizeof(xlsxOptions));

@@ -513,6 +513,15 @@ int parse_worksheet(xlsx2csvConverter *conv, int sheet_index, FILE *outfile)
             }
         }
 
+        /* Check for date format error - stop processing before writing this row */
+        if (conv->has_date_error) {
+            /* Free cells and break */
+            for (int i = 0; i < MAX_COLS; i++) {
+                free(cells[i]);
+            }
+            break;
+        }
+
         /* Write row if not empty or if we're not skipping empty lines */
         if (!is_empty || !conv->options.skip_empty_lines) {
             /* Adjust max_col if skip_trailing_columns is enabled */
