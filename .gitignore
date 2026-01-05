@@ -1,0 +1,31 @@
+# Build directory
+build/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile.cmake
+
+# Executable
+xlsx2csv
+
+# Object files (if any)
+*.o
+*.a
+*.so
+
+# Test output
+tests/actual/*.csv
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+

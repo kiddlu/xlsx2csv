@@ -41,6 +41,15 @@ This is a high-performance C version of the popular Python tool xlsx2csv, which 
 
 ## 📦 Dependencies
 
+### Build Tools
+
+- **CMake** >= 3.10
+- **GCC** or **Clang** (C11 support)
+- **clang-format** (for code formatting)
+- **pkg-config** (for dependency detection)
+
+### Runtime Libraries
+
 - **libzip** - ZIP file handling (XLSX files are ZIP archives)
 - **libxml2** - XML parsing (XLSX internal format)
 - **libcsv** - CSV field escaping
@@ -48,20 +57,54 @@ This is a high-performance C version of the popular Python tool xlsx2csv, which 
 ### Installing Dependencies (Debian/Ubuntu)
 
 ```bash
-sudo apt-get install -y libzip-dev libxml2-dev libcsv-dev
+sudo apt-get install -y \
+    cmake \
+    build-essential \
+    clang-format \
+    pkg-config \
+    libzip-dev \
+    libxml2-dev \
+    libcsv-dev
 ```
 
 ## 🔨 Building
 
+### Build System Architecture
+
+This project uses **Make wrapping CMake**:
+
+- **CMakeLists.txt**: Actual build configuration (compiler flags, sources, libraries)
+- **Makefile**: Wrapper layer providing simplified build interface
+
+### Quick Start
+
 ```bash
+# Full build (format code + CMake configure + compile)
 make
+
+# Format code only (without building)
+make format
+
+# Configure CMake only (without building)
+make pre
+
+# Clean build artifacts
+make clean
+
+# Remove build directory completely
+make rm
 ```
 
-Clean build:
+### Build Process
 
-```bash
-make clean && make
-```
+When you run `make`, it automatically:
+
+1. **Formats code** - Uses `clang-format` to format all `.c` and `.h` files
+2. **Configures CMake** - Generates build system in `build/` directory
+3. **Compiles** - Parallel compilation using all CPU cores
+4. **Copies executable** - Moves `xlsx2csv` from `build/` to project root
+
+See [BUILD_GUIDE.md](BUILD_GUIDE.md) for detailed build documentation.
 
 ## 📥 Installation
 

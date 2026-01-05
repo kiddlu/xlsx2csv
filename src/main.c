@@ -1,9 +1,10 @@
-#include "xlsx2csv.h"
+#include <getopt.h>
 #include <stdlib.h>
 #include <string.h>
-#include <getopt.h>
+#include "xlsx2csv.h"
 
-static void print_usage(const char *prog_name) {
+static void print_usage(const char *prog_name)
+{
     printf("usage: %s [-h] [-v] [-a] [-c OUTPUTENCODING] [-d DELIMITER]\n", prog_name);
     printf("                [--hyperlinks] [-e] [--no-line-breaks]\n");
     printf("                [-E EXCLUDE_SHEET_PATTERN [EXCLUDE_SHEET_PATTERN ...]]\n");
@@ -59,72 +60,73 @@ static void print_usage(const char *prog_name) {
     printf("  --include-hidden-rows include hidden rows\n");
 }
 
-int main(int argc, char **argv) {
-    xlsxOptions options = {0};
-    char *infile = NULL;
-    char *outfile = NULL;
-    int sheetid = 1;
-    char *sheetname = NULL;
-    bool convert_all = false;
-    
+int main(int argc, char **argv)
+{
+    xlsxOptions options     = {0};
+    char       *infile      = NULL;
+    char       *outfile     = NULL;
+    int         sheetid     = 1;
+    char       *sheetname   = NULL;
+    bool        convert_all = false;
+
     /* Initialize default options */
-    options.delimiter = ',';
-    options.quoting = QUOTE_MINIMAL;
-    options.sheetdelimiter = "--------";
-    options.dateformat = NULL;
-    options.timeformat = NULL;
-    options.floatformat = NULL;
-    options.scifloat = false;
-    options.skip_empty_lines = false;
-    options.skip_trailing_columns = false;
-    options.escape_strings = false;
-    options.no_line_breaks = false;
-    options.hyperlinks = false;
-    options.include_sheet_pattern = NULL;
+    options.delimiter                   = ',';
+    options.quoting                     = QUOTE_MINIMAL;
+    options.sheetdelimiter              = "--------";
+    options.dateformat                  = NULL;
+    options.timeformat                  = NULL;
+    options.floatformat                 = NULL;
+    options.scifloat                    = false;
+    options.skip_empty_lines            = false;
+    options.skip_trailing_columns       = false;
+    options.escape_strings              = false;
+    options.no_line_breaks              = false;
+    options.hyperlinks                  = false;
+    options.include_sheet_pattern       = NULL;
     options.include_sheet_pattern_count = 0;
-    options.exclude_sheet_pattern = NULL;
+    options.exclude_sheet_pattern       = NULL;
     options.exclude_sheet_pattern_count = 0;
-    options.exclude_hidden_sheets = false;
-    options.merge_cells = false;
-    options.outputencoding = "utf-8";
-    options.lineterminator = "\n";
-    options.ignore_formats = NULL;
-    options.ignore_formats_count = 0;
-    options.skip_hidden_rows = true;
-    
+    options.exclude_hidden_sheets       = false;
+    options.merge_cells                 = false;
+    options.outputencoding              = "utf-8";
+    options.lineterminator              = "\n";
+    options.ignore_formats              = NULL;
+    options.ignore_formats_count        = 0;
+    options.skip_hidden_rows            = true;
+
     /* Parse command line options */
     static struct option long_options[] = {
-        {"help", no_argument, 0, 'h'},
-        {"version", no_argument, 0, 'v'},
-        {"all", no_argument, 0, 'a'},
-        {"outputencoding", required_argument, 0, 'c'},
-        {"delimiter", required_argument, 0, 'd'},
-        {"hyperlinks", no_argument, 0, 1001},
-        {"escape", no_argument, 0, 'e'},
-        {"no-line-breaks", no_argument, 0, 1002},
-        {"exclude_sheet_pattern", required_argument, 0, 'E'},
-        {"dateformat", required_argument, 0, 'f'},
-        {"timeformat", required_argument, 0, 't'},
-        {"floatformat", required_argument, 0, 1003},
-        {"sci-float", no_argument, 0, 1004},
-        {"include_sheet_pattern", required_argument, 0, 'I'},
-        {"exclude_hidden_sheets", no_argument, 0, 1005},
-        {"ignore-formats", required_argument, 0, 1006},
-        {"lineterminator", required_argument, 0, 'l'},
-        {"merge-cells", no_argument, 0, 'm'},
-        {"sheetname", required_argument, 0, 'n'},
-        {"ignoreempty", no_argument, 0, 'i'},
-        {"skipemptycolumns", no_argument, 0, 1007},
-        {"sheetdelimiter", required_argument, 0, 'p'},
-        {"quoting", required_argument, 0, 'q'},
-        {"sheet", required_argument, 0, 's'},
-        {"include-hidden-rows", no_argument, 0, 1008},
-        {0, 0, 0, 0}
+        {"help",                  no_argument,       0, 'h' },
+        {"version",               no_argument,       0, 'v' },
+        {"all",                   no_argument,       0, 'a' },
+        {"outputencoding",        required_argument, 0, 'c' },
+        {"delimiter",             required_argument, 0, 'd' },
+        {"hyperlinks",            no_argument,       0, 1001},
+        {"escape",                no_argument,       0, 'e' },
+        {"no-line-breaks",        no_argument,       0, 1002},
+        {"exclude_sheet_pattern", required_argument, 0, 'E' },
+        {"dateformat",            required_argument, 0, 'f' },
+        {"timeformat",            required_argument, 0, 't' },
+        {"floatformat",           required_argument, 0, 1003},
+        {"sci-float",             no_argument,       0, 1004},
+        {"include_sheet_pattern", required_argument, 0, 'I' },
+        {"exclude_hidden_sheets", no_argument,       0, 1005},
+        {"ignore-formats",        required_argument, 0, 1006},
+        {"lineterminator",        required_argument, 0, 'l' },
+        {"merge-cells",           no_argument,       0, 'm' },
+        {"sheetname",             required_argument, 0, 'n' },
+        {"ignoreempty",           no_argument,       0, 'i' },
+        {"skipemptycolumns",      no_argument,       0, 1007},
+        {"sheetdelimiter",        required_argument, 0, 'p' },
+        {"quoting",               required_argument, 0, 'q' },
+        {"sheet",                 required_argument, 0, 's' },
+        {"include-hidden-rows",   no_argument,       0, 1008},
+        {0,                       0,                 0, 0   }
     };
-    
+
     int opt;
-    while ((opt = getopt_long(argc, argv, "hvac:d:eE:f:t:I:l:mn:ip:q:s:", 
-                              long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "hvac:d:eE:f:t:I:l:mn:ip:q:s:", long_options, NULL)) !=
+           -1) {
         switch (opt) {
             case 'h':
                 print_usage(argv[0]);
@@ -134,7 +136,7 @@ int main(int argc, char **argv) {
                 return 0;
             case 'a':
                 convert_all = true;
-                sheetid = 0;
+                sheetid     = 0;
                 break;
             case 'c':
                 options.outputencoding = optarg;
@@ -232,26 +234,26 @@ int main(int argc, char **argv) {
                 return 1;
         }
     }
-    
+
     /* Get input and output files */
     if (optind >= argc) {
         fprintf(stderr, "Error: missing input file\n");
         print_usage(argv[0]);
         return 1;
     }
-    
+
     infile = argv[optind++];
     if (optind < argc) {
         outfile = argv[optind];
     }
-    
+
     /* Create converter */
     xlsx2csvConverter *conv = xlsx2csv_create(infile, &options);
     if (!conv) {
         fprintf(stderr, "Error: Failed to open %s\n", infile);
         return 1;
     }
-    
+
     /* Convert */
     int result;
     if (convert_all) {
@@ -264,10 +266,9 @@ int main(int argc, char **argv) {
     } else {
         result = xlsx2csv_convert(conv, outfile, sheetid, sheetname);
     }
-    
+
     /* Cleanup */
     xlsx2csv_free(conv);
-    
+
     return (result == 0) ? 0 : 1;
 }
-
