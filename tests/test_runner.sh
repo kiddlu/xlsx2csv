@@ -143,6 +143,95 @@ echo -e "\n=== Float Format with Basic Numbers ==="
 run_test "numbers_float_02f" "test_data/numbers.xlsx" "--floatformat %.02f"
 run_test "numbers_float_04f" "test_data/numbers.xlsx" "--floatformat %.04f"
 
+# Date and Time tests
+if [ -f "test_data/date_time.xlsx" ]; then
+    echo -e "\n=== Date and Time Tests ==="
+    run_test "date_time_default" "test_data/date_time.xlsx" ""
+    run_test "date_time_dateformat" "test_data/date_time.xlsx" "--dateformat %Y-%m-%d"
+fi
+
+# Boolean tests
+if [ -f "test_data/boolean.xlsx" ]; then
+    echo -e "\n=== Boolean Tests ==="
+    run_test "boolean_default" "test_data/boolean.xlsx" ""
+fi
+
+# Percentage tests
+if [ -f "test_data/percentage.xlsx" ]; then
+    echo -e "\n=== Percentage Tests ==="
+    run_test "percentage_default" "test_data/percentage.xlsx" ""
+    run_test "percentage_float02f" "test_data/percentage.xlsx" "--floatformat %.02f"
+fi
+
+# Formula tests
+if [ -f "test_data/formulas.xlsx" ]; then
+    echo -e "\n=== Formula Tests ==="
+    run_test "formulas_default" "test_data/formulas.xlsx" ""
+fi
+
+# Extreme numbers tests
+if [ -f "test_data/extreme_numbers.xlsx" ]; then
+    echo -e "\n=== Extreme Numbers Tests ==="
+    run_test "extreme_numbers_default" "test_data/extreme_numbers.xlsx" ""
+    run_test "extreme_numbers_float02f" "test_data/extreme_numbers.xlsx" "--floatformat %.02f"
+    run_test "extreme_numbers_scifloat" "test_data/extreme_numbers.xlsx" "--sci-float"
+fi
+
+# Mixed empty cells tests
+if [ -f "test_data/mixed_empty.xlsx" ]; then
+    echo -e "\n=== Mixed Empty Cells Tests ==="
+    run_test "mixed_empty_default" "test_data/mixed_empty.xlsx" ""
+    run_test "mixed_empty_skip" "test_data/mixed_empty.xlsx" "-i"
+fi
+
+# Unicode extended tests
+if [ -f "test_data/unicode_extended.xlsx" ]; then
+    echo -e "\n=== Unicode Extended Tests ==="
+    run_test "unicode_extended_default" "test_data/unicode_extended.xlsx" ""
+    run_test "unicode_extended_quote_all" "test_data/unicode_extended.xlsx" "-q all"
+fi
+
+# Long strings tests
+if [ -f "test_data/long_strings.xlsx" ]; then
+    echo -e "\n=== Long Strings Tests ==="
+    run_test "long_strings_default" "test_data/long_strings.xlsx" ""
+    run_test "long_strings_quote_all" "test_data/long_strings.xlsx" "-q all"
+fi
+
+# CSV escaping tests
+if [ -f "test_data/escaping.xlsx" ]; then
+    echo -e "\n=== CSV Escaping Tests ==="
+    run_test "escaping_minimal" "test_data/escaping.xlsx" "-q minimal"
+    run_test "escaping_all" "test_data/escaping.xlsx" "-q all"
+    run_test "escaping_nonnumeric" "test_data/escaping.xlsx" "-q nonnumeric"
+    run_test "escaping_none" "test_data/escaping.xlsx" "-q none"
+fi
+
+# Multi-sheet complex tests
+if [ -f "test_data/multisheet_complex.xlsx" ]; then
+    echo -e "\n=== Multi-Sheet Complex Tests ==="
+    run_test "multisheet_complex_all" "test_data/multisheet_complex.xlsx" ""
+    run_test "multisheet_complex_sheet1" "test_data/multisheet_complex.xlsx" "-s 1"
+    run_test "multisheet_complex_sheet2" "test_data/multisheet_complex.xlsx" "-s 2"
+    run_test "multisheet_complex_sheet3" "test_data/multisheet_complex.xlsx" "-s 3"
+    run_test "multisheet_complex_sheet4" "test_data/multisheet_complex.xlsx" "-s 4"
+fi
+
+# Number formats tests
+if [ -f "test_data/number_formats.xlsx" ]; then
+    echo -e "\n=== Number Formats Tests ==="
+    run_test "number_formats_default" "test_data/number_formats.xlsx" ""
+    run_test "number_formats_float04f" "test_data/number_formats.xlsx" "--floatformat %.04f"
+fi
+
+# Combination tests (stress testing)
+echo -e "\n=== Combination Tests ==="
+run_test "combo_tab_quote_all" "test_data/basic.xlsx" "-d tab -q all"
+run_test "combo_semicolon_skip_empty" "test_data/empty.xlsx" "-d ';' -i"
+if [ -f "test_data/float_format.xlsx" ]; then
+    run_test "combo_float_tab_quote" "test_data/float_format.xlsx" "--floatformat %.03f -d tab -q nonnumeric"
+fi
+
 echo
 echo "====================================="
 echo "Test Results"

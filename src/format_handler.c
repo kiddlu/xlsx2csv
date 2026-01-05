@@ -16,6 +16,7 @@ static const struct {
     {"#,##0",                 FORMAT_FLOAT     },
     {"#,##0.00",              FORMAT_FLOAT     },
     {"0%",                    FORMAT_PERCENTAGE},
+    {"0.0%",                  FORMAT_PERCENTAGE},
     {"0.00%",                 FORMAT_PERCENTAGE},
     {"0.00e+00",              FORMAT_FLOAT     },
     {"mm-dd-yy",              FORMAT_DATE      },
@@ -285,35 +286,24 @@ char *format_float(double value, const char *format, bool scifloat)
                 }
             }
         }
-    } else if (fabs(value - round(value)) < 1e-9) {
-        /* Integer value */
-        /* Check for negative zero: value is close to zero but signbit is set */
-        if (fabs(value) < 1e-10) {
-            /* Check if it's negative zero by checking signbit */
-            if (value < 0.0 || (fabs(value) < 1e-300 && signbit(value))) {
-                /* Negative zero: use %f format to preserve sign, then strip trailing zeros */
-                snprintf(buffer, sizeof(buffer), "%f", value);
-                /* Strip trailing zeros */
-                char *p = strchr(buffer, '.');
-                if (p) {
-                    char *end = buffer + strlen(buffer) - 1;
-                    while (end > p && *end == '0') {
-                        *end = '\0';
-                        end--;
-                    }
-                    if (*end == '.') {
-                        *end = '\0';
-                    }
-                }
-                /* If result is "-0", keep it; if "0", check original sign */
-                if (strcmp(buffer, "0") == 0 && (value < 0.0 || signbit(value))) {
-                    snprintf(buffer, sizeof(buffer), "-0");
-                }
-            } else {
-                snprintf(buffer, sizeof(buffer), "0");
-            }
+    } else if (fabs(value - round(value)) < 1e-9 && fabs(value) > 1e-200) {
+        /* Integer value (but not subnormal/tiny values)
+         * Exclude subnormal numbers (< 1e-200) to match Python behavior
+         * which formats them as "0.000000" not "0"
+         */
+        snprintf(buffer, sizeof(buffer), "%.0f", value);
+    } else if (fabs(value) < 1e-200 && value != 0.0) {
+        /* Subnormal/tiny values: use %f to get "0.000000" or "-0.000000"
+         * This matches Python's behavior for extremely small values
+         */
+        snprintf(buffer, sizeof(buffer), "%f", value);
+        /* Do NOT strip trailing zeros for tiny values - Python keeps them */
+    } else if (fabs(value) < 1e-10) {
+        /* Value is effectively zero (not subnormal, just zero) */
+        if (value < 0.0 || signbit(value)) {
+            snprintf(buffer, sizeof(buffer), "-0");
         } else {
-            snprintf(buffer, sizeof(buffer), "%.0f", value);
+            snprintf(buffer, sizeof(buffer), "0");
         }
     } else {
         /* Use %f format (default 6 decimal places), then aggressively strip trailing zeros
@@ -337,6 +327,41 @@ char *format_float(double value, const char *format, bool scifloat)
     }
 
     return str_duplicate(buffer);
+}
+
+/* Apply Excel number format to a value
+ * Returns formatted string, or NULL if format not supported
+ * Caller must free the returned string
+ */
+static char *apply_excel_format(double value, const char *format_code)
+{
+    if (!format_code) {
+        return NULL;
+    }
+
+    /* Handle format "0.00" - round to 2 decimal places */
+    if (strcmp(format_code, "0.00") == 0) {
+        char buffer[256];
+        snprintf(buffer, sizeof(buffer), "%.2f", value);
+        return str_duplicate(buffer);
+    }
+
+    /* Handle format "0" - no decimal places */
+    if (strcmp(format_code, "0") == 0) {
+        char buffer[256];
+        snprintf(buffer, sizeof(buffer), "%.0f", value);
+        return str_duplicate(buffer);
+    }
+
+    /* Handle scientific notation format "0.00E+00" */
+    if (strcmp(format_code, "0.00E+00") == 0 || strcmp(format_code, "0.00e+00") == 0) {
+        char buffer[256];
+        snprintf(buffer, sizeof(buffer), "%.8f", value); /* Python uses more precision */
+        return str_duplicate(buffer);
+    }
+
+    /* Other formats not supported - return NULL to use default formatting */
+    return NULL;
 }
 
 /* Main cell formatting function */
@@ -387,14 +412,14 @@ char *format_cell_value(const char        *value,
             } else {
                 return format_time(num_value, NULL);
             }
-        } else if (ftype == FORMAT_FLOAT) {
-            /* Python xlsx2csv logic: floatformat only applies in specific cases:
-             * 1. If original value contains 'e' or 'E' (scientific notation) - always apply
-             * floatformat
-             * 2. If format string starts with '0.0' (like '0.00', '0.0000') - apply floatformat if
-             * specified
-             * 3. If format is 'general' - don't apply floatformat (unless scientific notation)
+        } else if (ftype == FORMAT_PERCENTAGE) {
+            /* Percentage values are stored as decimals in Excel (0.5 = 50%)
+             * Python xlsx2csv does NOT apply floatformat to percentages
+             * Output the decimal value as-is
              */
+            return format_float(num_value, NULL, conv->options.scifloat);
+        } else if (ftype == FORMAT_FLOAT) {
+            /* Get the format string for this style */
             const char *format_str = NULL;
             for (int i = 0; i < conv->styles.format_count; i++) {
                 if (conv->styles.formats[i].id == style_id) {
@@ -403,24 +428,28 @@ char *format_cell_value(const char        *value,
                 }
             }
 
+            /* First priority: Try to apply Excel number format (if no floatformat option) */
+            if (!conv->options.floatformat && format_str) {
+                char *excel_formatted = apply_excel_format(num_value, format_str);
+                if (excel_formatted) {
+                    return excel_formatted;
+                }
+            }
+
+            /* Second priority: Apply floatformat option if specified */
             bool format_starts_with_0_0 = format_str && strncmp(format_str, "0.0", 3) == 0;
             bool has_scientific         = strchr(value, 'e') != NULL || strchr(value, 'E') != NULL;
 
-            /* Apply floatformat only if:
-             * - original value has scientific notation (always), OR
-             * - format starts with '0.0' AND floatformat is specified
-             * For 'general' format without scientific notation, use default formatting
-             */
             /* Check if original value string contains negative zero */
             double parsed_value = atof(value);
             bool   is_negative_zero =
                 (strcmp(value, "-0") == 0) ||
                 (value[0] == '-' && fabs(parsed_value) < 1e-300 && signbit(parsed_value));
+
             if (has_scientific && conv->options.floatformat) {
                 /* Scientific notation: always apply floatformat if specified */
                 char *result =
                     format_float(num_value, conv->options.floatformat, conv->options.scifloat);
-                /* Preserve negative zero if original was negative zero */
                 if (is_negative_zero && strcmp(result, "0") == 0) {
                     free(result);
                     return str_duplicate("-0");
@@ -430,7 +459,6 @@ char *format_cell_value(const char        *value,
                 /* Format starts with '0.0': apply floatformat if specified */
                 char *result =
                     format_float(num_value, conv->options.floatformat, conv->options.scifloat);
-                /* Preserve negative zero if original was negative zero */
                 if (is_negative_zero && strcmp(result, "0") == 0) {
                     free(result);
                     return str_duplicate("-0");
