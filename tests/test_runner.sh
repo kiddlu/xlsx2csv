@@ -117,6 +117,32 @@ if [ -f "test_data/utf8_test.xlsx" ]; then
     run_test "utf8_test" "test_data/utf8_test.xlsx" ""
 fi
 
+# Float format tests (CRITICAL: Must match Python version exactly)
+echo -e "\n=== Float Format Tests (CRITICAL) ==="
+if [ -f "test_data/float_format.xlsx" ]; then
+    # Test --floatformat %.02f (most common use case)
+    run_test "float_format_02f" "test_data/float_format.xlsx" "--floatformat %.02f"
+    
+    # Test --floatformat with different precisions
+    run_test "float_format_04f" "test_data/float_format.xlsx" "--floatformat %.04f"
+    run_test "float_format_06f" "test_data/float_format.xlsx" "--floatformat %.06f"
+    run_test "float_format_08f" "test_data/float_format.xlsx" "--floatformat %.08f"
+    
+    # Test --sci-float (scientific notation)
+    run_test "float_sci_float" "test_data/float_format.xlsx" "--sci-float"
+    
+    # Test --sci-float with numbers.xlsx (has scientific notation values)
+    run_test "numbers_sci_float" "test_data/numbers.xlsx" "--sci-float"
+    
+    # Test combination: --floatformat with --sci-float (should prioritize floatformat)
+    run_test "float_format_02f_sci" "test_data/float_format.xlsx" "--floatformat %.02f --sci-float"
+fi
+
+# Test --floatformat with basic numbers file
+echo -e "\n=== Float Format with Basic Numbers ==="
+run_test "numbers_float_02f" "test_data/numbers.xlsx" "--floatformat %.02f"
+run_test "numbers_float_04f" "test_data/numbers.xlsx" "--floatformat %.04f"
+
 echo
 echo "====================================="
 echo "Test Results"

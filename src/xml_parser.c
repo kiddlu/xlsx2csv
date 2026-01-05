@@ -92,7 +92,7 @@ int parse_workbook(xlsx2csvConverter *conv)
     }
 
     /* Allocate sheet array */
-    conv->workbook.sheets      = calloc(sheet_count, sizeof(sheetInfo));
+    conv->workbook.sheets      = calloc((size_t)sheet_count, sizeof(sheetInfo));
     conv->workbook.sheet_count = sheet_count;
 
     /* Parse sheets */
@@ -161,7 +161,7 @@ int parse_shared_strings(xlsx2csvConverter *conv)
     }
 
     /* Allocate string array */
-    conv->shared_strings.strings = calloc(count, sizeof(char *));
+    conv->shared_strings.strings = calloc((size_t)count, sizeof(char *));
     conv->shared_strings.count   = count;
 
     /* Parse strings */
@@ -239,7 +239,7 @@ int parse_styles(xlsx2csvConverter *conv)
                 }
             }
 
-            conv->styles.formats      = calloc(count, sizeof(numFormat));
+            conv->styles.formats      = calloc((size_t)count, sizeof(numFormat));
             conv->styles.format_count = count;
 
             /* Parse formats */
@@ -276,7 +276,7 @@ int parse_styles(xlsx2csvConverter *conv)
                 }
             }
 
-            conv->styles.cell_xfs       = calloc(count, sizeof(int));
+            conv->styles.cell_xfs       = calloc((size_t)count, sizeof(int));
             conv->styles.cell_xfs_count = count;
 
             /* Parse xfs */

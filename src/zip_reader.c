@@ -100,9 +100,9 @@ void *zip_file_open(void *zip_handle, const char *filename)
     /* Try to find file (case-insensitive) */
     zip_int64_t num_entries = zip_get_num_entries(za, 0);
     for (zip_int64_t i = 0; i < num_entries; i++) {
-        const char *name = zip_get_name(za, i, 0);
+        const char *name = zip_get_name(za, (zip_uint64_t)i, 0);
         if (name && strcasecmp(name, search_name) == 0) {
-            zip_file_t *zf = zip_fopen_index(za, i, 0);
+            zip_file_t *zf = zip_fopen_index(za, (zip_uint64_t)i, 0);
             return (void *)zf;
         }
     }
@@ -153,7 +153,7 @@ char *zip_read_file_to_string(void *zip_handle, const char *filename)
             break;
         }
 
-        total_read += read_size;
+        total_read += (size_t)read_size;
 
         if (total_read >= buffer_size - 1) {
             buffer_size *= 2;
@@ -167,7 +167,9 @@ char *zip_read_file_to_string(void *zip_handle, const char *filename)
         }
     }
 
-    buffer[total_read] = '\0';
+    if (buffer) {
+        buffer[total_read] = '\0';
+    }
     zip_file_close(file);
 
     return buffer;

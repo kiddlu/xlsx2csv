@@ -93,7 +93,7 @@ char *column_index_to_name(int index)
     }
 
     /* Reverse the string */
-    char *result = malloc(pos + 1);
+    char *result = malloc((size_t)(pos + 1));
     if (result) {
         for (int i = 0; i < pos; i++) {
             result[i] = buffer[pos - 1 - i];

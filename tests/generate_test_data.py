@@ -108,11 +108,82 @@ def create_number_formats_test():
     wb.save('test_data/numbers.xlsx')
     print("Created numbers.xlsx")
 
+def create_float_format_test():
+    """Create comprehensive test file for --floatformat and --sci-float options"""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "FloatFormat"
+    
+    # Headers
+    ws['A1'] = "Description"
+    ws['B1'] = "Value"
+    
+    # Various float scenarios
+    # Row 2: Small positive decimal
+    ws['A2'] = "Small positive"
+    ws['B2'] = 0.001234
+    
+    # Row 3: Large positive number
+    ws['A3'] = "Large positive"
+    ws['B3'] = 1234567.89
+    
+    # Row 4: Small negative decimal
+    ws['A4'] = "Small negative"
+    ws['B4'] = -0.000456
+    
+    # Row 5: Large negative number
+    ws['A5'] = "Large negative"
+    ws['B5'] = -9876543.21
+    
+    # Row 6: Very small number (scientific notation range)
+    ws['A6'] = "Very small"
+    ws['B6'] = 1.23e-10
+    
+    # Row 7: Very large number (scientific notation range)
+    ws['A7'] = "Very large"
+    ws['B7'] = 9.87e15
+    
+    # Row 8: Exact decimal (no trailing zeros)
+    ws['A8'] = "Exact decimal"
+    ws['B8'] = 89.01
+    
+    # Row 9: Many decimal places
+    ws['A9'] = "Many decimals"
+    ws['B9'] = 3.141592653589793
+    
+    # Row 10: Integer as float
+    ws['A10'] = "Integer float"
+    ws['B10'] = 100.0
+    
+    # Row 11: Zero
+    ws['A11'] = "Zero"
+    ws['B11'] = 0.0
+    
+    # Row 12: Negative zero
+    ws['A12'] = "Negative zero"
+    ws['B12'] = -0.0
+    
+    # Row 13: Medium precision
+    ws['A13'] = "Medium precision"
+    ws['B13'] = 1234.567
+    
+    # Row 14: Edge case - just below 1
+    ws['A14'] = "Just below 1"
+    ws['B14'] = 0.999999
+    
+    # Row 15: Edge case - just above 1
+    ws['A15'] = "Just above 1"
+    ws['B15'] = 1.000001
+    
+    wb.save('test_data/float_format.xlsx')
+    print("Created float_format.xlsx")
+
 if __name__ == '__main__':
     create_basic_test()
     create_special_chars_test()
     create_empty_test()
     create_multisheet_test()
     create_number_formats_test()
+    create_float_format_test()
     print("All test files created successfully")
 
