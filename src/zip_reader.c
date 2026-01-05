@@ -1,9 +1,14 @@
+/* Standard library headers */
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+
+/* Third-party library headers */
 #include <zip.h>
-#include "xlsx2csv.h"
+
+/* Project headers */
+#include "zip_reader.h"
 
 /* Open XLSX file (which is a ZIP archive) */
 void *zip_open_file(const char *filename)

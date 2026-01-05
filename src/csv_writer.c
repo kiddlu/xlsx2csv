@@ -1,7 +1,13 @@
-#include <csv.h>
+/* Standard library headers */
 #include <stdlib.h>
 #include <string.h>
-#include "xlsx2csv.h"
+
+/* Third-party library headers */
+#include <csv.h>
+
+/* Project headers */
+#include "csv_writer.h"
+#include "utils.h"
 
 /* CSV Writer structure */
 struct csvWriter {

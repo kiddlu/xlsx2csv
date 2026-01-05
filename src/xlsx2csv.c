@@ -1,7 +1,15 @@
-#include "xlsx2csv.h"
+/* Standard library headers */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Project headers */
+#include "csv_writer.h"
+#include "format_handler.h"
+#include "utils.h"
+#include "xlsx2csv.h"
+#include "xml_parser.h"
+#include "zip_reader.h"
 
 /* Initialize options with defaults */
 static void init_default_options(xlsxOptions *opts)

@@ -1,6 +1,9 @@
+/* Standard library headers */
 #include <getopt.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Project headers */
 #include "xlsx2csv.h"
 
 static void print_usage(const char *prog_name)

@@ -1,8 +1,13 @@
+/* Standard library headers */
 #include <ctype.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Project headers */
+#include "format_handler.h"
+#include "utils.h"
 #include "xlsx2csv.h"
 
 /* Format mappings (from Python version) */

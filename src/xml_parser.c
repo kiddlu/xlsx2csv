@@ -1,10 +1,20 @@
+/* Standard library headers */
 #include <ctype.h>
+#include <stdlib.h>
+#include <string.h>
+
+/* Third-party library headers */
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 #include <libxml/xpath.h>
-#include <stdlib.h>
-#include <string.h>
+
+/* Project headers */
+#include "csv_writer.h"
+#include "format_handler.h"
+#include "utils.h"
 #include "xlsx2csv.h"
+#include "xml_parser.h"
+#include "zip_reader.h"
 
 /* Parse Content Types XML */
 int parse_content_types(xlsx2csvConverter *conv)

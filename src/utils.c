@@ -1,8 +1,11 @@
+/* Standard library headers */
 #include <ctype.h>
 #include <regex.h>
 #include <stdlib.h>
 #include <string.h>
-#include "xlsx2csv.h"
+
+/* Project headers */
+#include "utils.h"
 
 /* Duplicate string */
 char *str_duplicate(const char *str)
