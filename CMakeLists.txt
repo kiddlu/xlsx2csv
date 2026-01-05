@@ -11,8 +11,20 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -O2")
 # Find required packages
 find_package(PkgConfig REQUIRED)
 
-# Find libxml2
-pkg_check_modules(LIBXML2 REQUIRED libxml-2.0)
+# Find expat (default backend)
+# To use libxml2 backend, compile with: cmake -DUSE_LIBXML2_BACKEND=ON
+if(USE_LIBXML2_BACKEND)
+    pkg_check_modules(LIBXML2 REQUIRED libxml-2.0)
+    set(XML_BACKEND_INCLUDE_DIRS ${LIBXML2_INCLUDE_DIRS})
+    set(XML_BACKEND_LIBRARIES ${LIBXML2_LIBRARIES})
+    set(XML_BACKEND_CFLAGS ${LIBXML2_CFLAGS_OTHER})
+    add_definitions(-DUSE_LIBXML2_BACKEND)
+else()
+    pkg_check_modules(EXPAT REQUIRED expat)
+    set(XML_BACKEND_INCLUDE_DIRS ${EXPAT_INCLUDE_DIRS})
+    set(XML_BACKEND_LIBRARIES ${EXPAT_LIBRARIES})
+    set(XML_BACKEND_CFLAGS ${EXPAT_CFLAGS_OTHER})
+endif()
 
 # Find libzip
 pkg_check_modules(LIBZIP REQUIRED libzip)
@@ -26,6 +38,7 @@ set(SOURCES
     src/csv_writer.c
     src/format_handler.c
     src/utils.c
+    src/thread_pool.c
 )
 
 # Header files
@@ -35,7 +48,7 @@ set(HEADERS
 
 # Include directories
 include_directories(
-    ${LIBXML2_INCLUDE_DIRS}
+    ${XML_BACKEND_INCLUDE_DIRS}
     ${LIBZIP_INCLUDE_DIRS}
     src
 )
@@ -45,9 +58,10 @@ add_executable(xlsx2csv ${SOURCES} ${HEADERS})
 
 # Link libraries
 target_link_libraries(xlsx2csv
-    ${LIBXML2_LIBRARIES}
+    ${XML_BACKEND_LIBRARIES}
     ${LIBZIP_LIBRARIES}
     m
+    pthread
 )
 
 # Compiler warning options (strict mode, ordered by importance)
@@ -78,7 +92,7 @@ target_link_libraries(xlsx2csv
 # -Wpedantic: Issue warnings needed for strict ISO C compliance - style enforcement
 # Note: -Wfloat-equal is excluded as it conflicts with negative zero handling (signbit checks)
 target_compile_options(xlsx2csv PRIVATE
-    ${LIBXML2_CFLAGS_OTHER}
+    ${XML_BACKEND_CFLAGS}
     ${LIBZIP_CFLAGS_OTHER}
     -Wall
     -Wextra

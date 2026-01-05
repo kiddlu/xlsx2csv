@@ -1,12 +1,11 @@
 /* Standard library headers */
 #include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 /* Third-party library headers */
-#include <libxml/parser.h>
-#include <libxml/tree.h>
-#include <libxml/xpath.h>
+#include <expat.h>
 
 /* Project headers */
 #include "csv_writer.h"
@@ -15,6 +14,88 @@
 #include "xlsx2csv.h"
 #include "xml_parser.h"
 #include "zip_reader.h"
+
+/* Count sheets state */
+typedef struct {
+    int  *sheet_count;
+    bool *in_sheets;
+} count_sheets_state_t;
+
+static void count_sheets_start(void *userData, const XML_Char *name, const XML_Char **atts)
+{
+    (void)atts; /* Unused */
+    count_sheets_state_t *state = (count_sheets_state_t *)userData;
+    if (strcmp(name, "sheets") == 0) {
+        *state->in_sheets = true;
+    } else if (strcmp(name, "sheet") == 0 && *state->in_sheets) {
+        (*state->sheet_count)++;
+    }
+}
+
+static void count_sheets_end(void *userData, const XML_Char *name)
+{
+    count_sheets_state_t *state = (count_sheets_state_t *)userData;
+    if (strcmp(name, "sheets") == 0) {
+        *state->in_sheets = false;
+    }
+}
+
+/* Count strings state */
+typedef struct {
+    int  *count;
+    bool *in_si;
+} count_strings_state_t;
+
+static void count_strings_start(void *userData, const XML_Char *name, const XML_Char **atts)
+{
+    (void)atts; /* Unused */
+    count_strings_state_t *state = (count_strings_state_t *)userData;
+    if (strcmp(name, "si") == 0) {
+        *state->in_si = true;
+        (*state->count)++;
+    }
+}
+
+static void count_strings_end(void *userData, const XML_Char *name)
+{
+    count_strings_state_t *state = (count_strings_state_t *)userData;
+    if (strcmp(name, "si") == 0) {
+        *state->in_si = false;
+    }
+}
+
+/* Count styles state */
+typedef struct {
+    int  *format_count;
+    int  *xf_count;
+    bool *in_num_fmts;
+    bool *in_cell_xfs;
+} count_styles_state_t;
+
+static void count_styles_start(void *userData, const XML_Char *name, const XML_Char **atts)
+{
+    (void)atts; /* Unused */
+    count_styles_state_t *state = (count_styles_state_t *)userData;
+    if (strcmp(name, "numFmts") == 0) {
+        *state->in_num_fmts = true;
+    } else if (strcmp(name, "numFmt") == 0 && *state->in_num_fmts) {
+        (*state->format_count)++;
+    } else if (strcmp(name, "cellXfs") == 0) {
+        *state->in_cell_xfs = true;
+    } else if (strcmp(name, "xf") == 0 && *state->in_cell_xfs) {
+        (*state->xf_count)++;
+    }
+}
+
+static void count_styles_end(void *userData, const XML_Char *name)
+{
+    count_styles_state_t *state = (count_styles_state_t *)userData;
+    if (strcmp(name, "numFmts") == 0) {
+        *state->in_num_fmts = false;
+    } else if (strcmp(name, "cellXfs") == 0) {
+        *state->in_cell_xfs = false;
+    }
+}
 
 /* Parse Content Types XML */
 int parse_content_types(xlsx2csvConverter *conv)
@@ -25,17 +106,90 @@ int parse_content_types(xlsx2csvConverter *conv)
         return -1;
     }
 
-    xmlDocPtr doc = xmlReadMemory(xml_data, strlen(xml_data), NULL, NULL, 0);
+    XML_Parser parser = XML_ParserCreate(NULL);
+    if (!parser) {
+        free(xml_data);
+        return -1;
+    }
+
+    int status = XML_Parse(parser, xml_data, (int)strlen(xml_data), 1);
+    XML_ParserFree(parser);
     free(xml_data);
 
-    if (!doc) {
+    if (!status) {
         fprintf(stderr, "Error: Failed to parse [Content_Types].xml\n");
         return -1;
     }
 
     /* Content types parsing not critical for basic functionality */
-    xmlFreeDoc(doc);
     return 0;
+}
+
+/* Workbook parsing state */
+typedef struct {
+    xlsx2csvConverter *conv;
+    int                sheet_count;
+    int                current_sheet_idx;
+    bool               in_sheets;
+    bool               in_sheet;
+    bool               in_workbook_pr;
+    char              *current_name;
+    char              *current_rid;
+    char              *current_state;
+} workbook_parse_state;
+
+static void workbook_start_element(void *userData, const XML_Char *name, const XML_Char **atts)
+{
+    workbook_parse_state *state = (workbook_parse_state *)userData;
+
+    if (strcmp(name, "sheets") == 0) {
+        state->in_sheets = true;
+    } else if (strcmp(name, "sheet") == 0 && state->in_sheets) {
+        state->in_sheet = true;
+        state->current_sheet_idx++;
+        state->current_name  = NULL;
+        state->current_rid   = NULL;
+        state->current_state = NULL;
+
+        for (int i = 0; atts[i]; i += 2) {
+            if (strcmp(atts[i], "name") == 0) {
+                state->current_name = str_duplicate(atts[i + 1]);
+            } else if (strcmp(atts[i], "r:id") == 0) {
+                state->current_rid = str_duplicate(atts[i + 1]);
+            } else if (strcmp(atts[i], "state") == 0) {
+                state->current_state = str_duplicate(atts[i + 1]);
+            }
+        }
+    } else if (strcmp(name, "workbookPr") == 0) {
+        state->in_workbook_pr = true;
+        for (int i = 0; atts[i]; i += 2) {
+            if (strcmp(atts[i], "date1904") == 0) {
+                if (strcmp(atts[i + 1], "true") == 0 || strcmp(atts[i + 1], "1") == 0) {
+                    state->conv->workbook.date1904 = true;
+                }
+            }
+        }
+    }
+}
+
+static void workbook_end_element(void *userData, const XML_Char *name)
+{
+    workbook_parse_state *state = (workbook_parse_state *)userData;
+
+    if (strcmp(name, "sheets") == 0) {
+        state->in_sheets = false;
+    } else if (strcmp(name, "sheet") == 0 && state->in_sheet) {
+        if (state->current_sheet_idx > 0 && state->current_sheet_idx <= state->sheet_count) {
+            int idx                                       = state->current_sheet_idx - 1;
+            state->conv->workbook.sheets[idx].name        = state->current_name;
+            state->conv->workbook.sheets[idx].relation_id = state->current_rid;
+            state->conv->workbook.sheets[idx].state       = state->current_state;
+            state->conv->workbook.sheets[idx].index       = idx + 1;
+        }
+        state->in_sheet = false;
+    } else if (strcmp(name, "workbookPr") == 0) {
+        state->in_workbook_pr = false;
+    }
 }
 
 /* Parse Workbook XML */
@@ -47,94 +201,130 @@ int parse_workbook(xlsx2csvConverter *conv)
         return -1;
     }
 
-    xmlDocPtr doc = xmlReadMemory(xml_data, strlen(xml_data), NULL, NULL, 0);
-    free(xml_data);
+    /* First pass: count sheets */
+    XML_Parser parser = XML_ParserCreate(NULL);
+    if (!parser) {
+        free(xml_data);
+        return -1;
+    }
 
-    if (!doc) {
+    /* Count sheets by parsing again */
+    parser = XML_ParserCreate(NULL);
+    if (!parser) {
+        free(xml_data);
+        return -1;
+    }
+
+    int                  sheet_count = 0;
+    bool                 in_sheets   = false;
+    count_sheets_state_t count_state = {&sheet_count, &in_sheets};
+    XML_SetUserData(parser, &count_state);
+    XML_SetElementHandler(parser, count_sheets_start, count_sheets_end);
+    int status = XML_Parse(parser, xml_data, (int)strlen(xml_data), 1);
+    XML_ParserFree(parser);
+
+    if (!status) {
+        free(xml_data);
         fprintf(stderr, "Error: Failed to parse xl/workbook.xml\n");
         return -1;
-    }
-
-    xmlNodePtr root = xmlDocGetRootElement(doc);
-    if (!root) {
-        xmlFreeDoc(doc);
-        return -1;
-    }
-
-    /* Check for date1904 */
-    conv->workbook.date1904 = false;
-    for (xmlNodePtr node = root->children; node; node = node->next) {
-        if (node->type == XML_ELEMENT_NODE &&
-            xmlStrcmp(node->name, (const xmlChar *)"workbookPr") == 0) {
-            xmlChar *date1904 = xmlGetProp(node, (const xmlChar *)"date1904");
-            if (date1904) {
-                if (xmlStrcmp(date1904, (const xmlChar *)"true") == 0 ||
-                    xmlStrcmp(date1904, (const xmlChar *)"1") == 0) {
-                    conv->workbook.date1904 = true;
-                }
-                xmlFree(date1904);
-            }
-        }
-    }
-
-    /* Find sheets */
-    xmlNodePtr sheets_node = NULL;
-    for (xmlNodePtr node = root->children; node; node = node->next) {
-        if (node->type == XML_ELEMENT_NODE &&
-            xmlStrcmp(node->name, (const xmlChar *)"sheets") == 0) {
-            sheets_node = node;
-            break;
-        }
-    }
-
-    if (!sheets_node) {
-        xmlFreeDoc(doc);
-        return -1;
-    }
-
-    /* Count sheets */
-    int sheet_count = 0;
-    for (xmlNodePtr node = sheets_node->children; node; node = node->next) {
-        if (node->type == XML_ELEMENT_NODE &&
-            xmlStrcmp(node->name, (const xmlChar *)"sheet") == 0) {
-            sheet_count++;
-        }
     }
 
     /* Allocate sheet array */
     conv->workbook.sheets      = calloc((size_t)sheet_count, sizeof(sheetInfo));
     conv->workbook.sheet_count = sheet_count;
 
-    /* Parse sheets */
-    int idx = 0;
-    for (xmlNodePtr node = sheets_node->children; node; node = node->next) {
-        if (node->type == XML_ELEMENT_NODE &&
-            xmlStrcmp(node->name, (const xmlChar *)"sheet") == 0) {
-
-            xmlChar *name  = xmlGetProp(node, (const xmlChar *)"name");
-            xmlChar *rid   = xmlGetProp(node, (const xmlChar *)"r:id");
-            xmlChar *state = xmlGetProp(node, (const xmlChar *)"state");
-
-            if (name) {
-                conv->workbook.sheets[idx].name = str_duplicate((char *)name);
-                xmlFree(name);
-            }
-            if (rid) {
-                conv->workbook.sheets[idx].relation_id = str_duplicate((char *)rid);
-                xmlFree(rid);
-            }
-            if (state) {
-                conv->workbook.sheets[idx].state = str_duplicate((char *)state);
-                xmlFree(state);
-            }
-
-            conv->workbook.sheets[idx].index = idx + 1;
-            idx++;
-        }
+    /* Second pass: parse sheets */
+    parser = XML_ParserCreate(NULL);
+    if (!parser) {
+        free(xml_data);
+        return -1;
     }
 
-    xmlFreeDoc(doc);
+    workbook_parse_state parse_state = {0};
+    parse_state.conv                 = conv;
+    parse_state.sheet_count          = sheet_count;
+    XML_SetUserData(parser, &parse_state);
+    XML_SetElementHandler(parser, workbook_start_element, workbook_end_element);
+    status = XML_Parse(parser, xml_data, (int)strlen(xml_data), 1);
+    XML_ParserFree(parser);
+    free(xml_data);
+
+    if (!status) {
+        fprintf(stderr, "Error: Failed to parse xl/workbook.xml\n");
+        return -1;
+    }
+
     return 0;
+}
+
+/* Shared strings parsing state */
+typedef struct {
+    xlsx2csvConverter *conv;
+    int                string_idx;
+    bool               in_si;
+    bool               in_t;
+    char              *current_text;
+    size_t             text_len;
+    size_t             text_capacity;
+} shared_strings_state;
+
+static void shared_strings_start_element(void            *userData,
+                                         const XML_Char  *name,
+                                         const XML_Char **atts)
+{
+    (void)atts; /* Unused */
+    shared_strings_state *state = (shared_strings_state *)userData;
+
+    if (strcmp(name, "si") == 0) {
+        state->in_si = true;
+        if (state->current_text) {
+            free(state->current_text);
+            state->current_text = NULL;
+        }
+        state->text_len      = 0;
+        state->text_capacity = 0;
+    } else if (strcmp(name, "t") == 0 && state->in_si) {
+        state->in_t = true;
+    }
+}
+
+static void shared_strings_end_element(void *userData, const XML_Char *name)
+{
+    shared_strings_state *state = (shared_strings_state *)userData;
+
+    if (strcmp(name, "si") == 0) {
+        if (state->string_idx < state->conv->shared_strings.count) {
+            if (state->current_text) {
+                state->conv->shared_strings.strings[state->string_idx] = state->current_text;
+                state->current_text                                    = NULL;
+            } else {
+                state->conv->shared_strings.strings[state->string_idx] = str_duplicate("");
+            }
+            state->string_idx++;
+        }
+        state->in_si = false;
+    } else if (strcmp(name, "t") == 0) {
+        state->in_t = false;
+    }
+}
+
+static void shared_strings_char_data(void *userData, const XML_Char *s, int len)
+{
+    shared_strings_state *state = (shared_strings_state *)userData;
+
+    if (state->in_t && state->in_si) {
+        size_t new_len = state->text_len + (size_t)len;
+        if (new_len >= state->text_capacity) {
+            state->text_capacity = new_len + 256;
+            state->current_text  = realloc(state->current_text, state->text_capacity + 1);
+            if (!state->current_text) {
+                return;
+            }
+        }
+        memcpy(state->current_text + state->text_len, s, (size_t)len);
+        state->text_len              = new_len;
+        state->current_text[new_len] = '\0';
+    }
 }
 
 /* Parse Shared Strings XML */
@@ -148,65 +338,135 @@ int parse_shared_strings(xlsx2csvConverter *conv)
         return 0;
     }
 
-    xmlDocPtr doc = xmlReadMemory(xml_data, strlen(xml_data), NULL, NULL, 0);
-    free(xml_data);
+    /* First pass: count strings */
+    XML_Parser parser = XML_ParserCreate(NULL);
+    if (!parser) {
+        free(xml_data);
+        return -1;
+    }
 
-    if (!doc) {
+    int                   count       = 0;
+    bool                  in_si       = false;
+    count_strings_state_t count_state = {&count, &in_si};
+    XML_SetUserData(parser, &count_state);
+    XML_SetElementHandler(parser, count_strings_start, count_strings_end);
+    int status = XML_Parse(parser, xml_data, (int)strlen(xml_data), 1);
+    XML_ParserFree(parser);
+
+    if (!status) {
+        free(xml_data);
         fprintf(stderr, "Error: Failed to parse xl/sharedStrings.xml\n");
         return -1;
-    }
-
-    xmlNodePtr root = xmlDocGetRootElement(doc);
-    if (!root) {
-        xmlFreeDoc(doc);
-        return -1;
-    }
-
-    /* Count strings */
-    int count = 0;
-    for (xmlNodePtr si = root->children; si; si = si->next) {
-        if (si->type == XML_ELEMENT_NODE && xmlStrcmp(si->name, (const xmlChar *)"si") == 0) {
-            count++;
-        }
     }
 
     /* Allocate string array */
     conv->shared_strings.strings = calloc((size_t)count, sizeof(char *));
     conv->shared_strings.count   = count;
 
-    /* Parse strings */
-    int idx = 0;
-    for (xmlNodePtr si = root->children; si; si = si->next) {
-        if (si->type == XML_ELEMENT_NODE && xmlStrcmp(si->name, (const xmlChar *)"si") == 0) {
-
-            /* Find <t> element */
-            xmlNodePtr t_node = NULL;
-            for (xmlNodePtr child = si->children; child; child = child->next) {
-                if (child->type == XML_ELEMENT_NODE &&
-                    xmlStrcmp(child->name, (const xmlChar *)"t") == 0) {
-                    t_node = child;
-                    break;
-                }
-            }
-
-            if (t_node) {
-                xmlChar *content = xmlNodeGetContent(t_node);
-                if (content) {
-                    conv->shared_strings.strings[idx] = str_duplicate((char *)content);
-                    xmlFree(content);
-                } else {
-                    conv->shared_strings.strings[idx] = str_duplicate("");
-                }
-            } else {
-                conv->shared_strings.strings[idx] = str_duplicate("");
-            }
-
-            idx++;
-        }
+    /* Second pass: parse strings */
+    parser = XML_ParserCreate(NULL);
+    if (!parser) {
+        free(xml_data);
+        return -1;
     }
 
-    xmlFreeDoc(doc);
+    shared_strings_state state = {0};
+    state.conv                 = conv;
+    XML_SetUserData(parser, &state);
+    XML_SetElementHandler(parser, shared_strings_start_element, shared_strings_end_element);
+    XML_SetCharacterDataHandler(parser, shared_strings_char_data);
+    status = XML_Parse(parser, xml_data, (int)strlen(xml_data), 1);
+    XML_ParserFree(parser);
+    free(xml_data);
+
+    if (!status) {
+        fprintf(stderr, "Error: Failed to parse xl/sharedStrings.xml\n");
+        return -1;
+    }
+
     return 0;
+}
+
+/* Styles parsing state */
+typedef struct {
+    xlsx2csvConverter *conv;
+    bool               in_num_fmts;
+    bool               in_num_fmt;
+    bool               in_cell_xfs;
+    bool               in_xf;
+    int                format_idx;
+    int                xf_idx;
+    char              *current_format_code;
+    char              *current_num_fmt_id;
+    char              *current_num_fmt_code;
+} styles_state;
+
+static void styles_start_element(void *userData, const XML_Char *name, const XML_Char **atts)
+{
+    styles_state *state = (styles_state *)userData;
+
+    if (strcmp(name, "numFmts") == 0) {
+        state->in_num_fmts = true;
+        /* Count formats first - we'll do this in a separate pass */
+    } else if (strcmp(name, "numFmt") == 0 && state->in_num_fmts) {
+        state->in_num_fmt = true;
+        free(state->current_num_fmt_id);
+        free(state->current_num_fmt_code);
+        state->current_num_fmt_id   = NULL;
+        state->current_num_fmt_code = NULL;
+
+        for (int i = 0; atts[i]; i += 2) {
+            if (strcmp(atts[i], "numFmtId") == 0) {
+                state->current_num_fmt_id = str_duplicate(atts[i + 1]);
+            } else if (strcmp(atts[i], "formatCode") == 0) {
+                state->current_num_fmt_code = str_duplicate(atts[i + 1]);
+            }
+        }
+    } else if (strcmp(name, "cellXfs") == 0) {
+        state->in_cell_xfs = true;
+    } else if (strcmp(name, "xf") == 0 && state->in_cell_xfs) {
+        state->in_xf = true;
+        free(state->current_format_code);
+        state->current_format_code = NULL;
+
+        for (int i = 0; atts[i]; i += 2) {
+            if (strcmp(atts[i], "numFmtId") == 0) {
+                state->current_format_code = str_duplicate(atts[i + 1]);
+            }
+        }
+    }
+}
+
+static void styles_end_element(void *userData, const XML_Char *name)
+{
+    styles_state *state = (styles_state *)userData;
+
+    if (strcmp(name, "numFmts") == 0) {
+        state->in_num_fmts = false;
+    } else if (strcmp(name, "numFmt") == 0 && state->in_num_fmt) {
+        if (state->format_idx < state->conv->styles.format_count) {
+            if (state->current_num_fmt_id) {
+                state->conv->styles.formats[state->format_idx].id = atoi(state->current_num_fmt_id);
+            }
+            if (state->current_num_fmt_code) {
+                state->conv->styles.formats[state->format_idx].format_code =
+                    state->current_num_fmt_code;
+                state->current_num_fmt_code = NULL;
+            }
+            state->format_idx++;
+        }
+        state->in_num_fmt = false;
+    } else if (strcmp(name, "cellXfs") == 0) {
+        state->in_cell_xfs = false;
+    } else if (strcmp(name, "xf") == 0 && state->in_xf) {
+        if (state->xf_idx < state->conv->styles.cell_xfs_count) {
+            if (state->current_format_code) {
+                state->conv->styles.cell_xfs[state->xf_idx] = atoi(state->current_format_code);
+            }
+            state->xf_idx++;
+        }
+        state->in_xf = false;
+    }
 }
 
 /* Parse Styles XML */
@@ -222,90 +482,333 @@ int parse_styles(xlsx2csvConverter *conv)
         return 0;
     }
 
-    xmlDocPtr doc = xmlReadMemory(xml_data, strlen(xml_data), NULL, NULL, 0);
-    free(xml_data);
+    /* First pass: count formats and xfs */
+    XML_Parser parser = XML_ParserCreate(NULL);
+    if (!parser) {
+        free(xml_data);
+        return -1;
+    }
 
-    if (!doc) {
+    int  format_count = 0;
+    int  xf_count     = 0;
+    bool in_num_fmts  = false;
+    bool in_cell_xfs  = false;
+
+    count_styles_state_t count_state = {&format_count, &xf_count, &in_num_fmts, &in_cell_xfs};
+    XML_SetUserData(parser, &count_state);
+    XML_SetElementHandler(parser, count_styles_start, count_styles_end);
+    int status = XML_Parse(parser, xml_data, (int)strlen(xml_data), 1);
+    XML_ParserFree(parser);
+
+    if (!status) {
+        free(xml_data);
         fprintf(stderr, "Error: Failed to parse xl/styles.xml\n");
         return -1;
     }
 
-    xmlNodePtr root = xmlDocGetRootElement(doc);
-    if (!root) {
-        xmlFreeDoc(doc);
+    /* Allocate arrays */
+    conv->styles.formats        = calloc((size_t)format_count, sizeof(numFormat));
+    conv->styles.format_count   = format_count;
+    conv->styles.cell_xfs       = calloc((size_t)xf_count, sizeof(int));
+    conv->styles.cell_xfs_count = xf_count;
+
+    /* Second pass: parse formats and xfs */
+    parser = XML_ParserCreate(NULL);
+    if (!parser) {
+        free(xml_data);
         return -1;
     }
 
-    /* Parse numFmts */
-    for (xmlNodePtr node = root->children; node; node = node->next) {
-        if (node->type == XML_ELEMENT_NODE &&
-            xmlStrcmp(node->name, (const xmlChar *)"numFmts") == 0) {
+    styles_state state = {0};
+    state.conv         = conv;
+    XML_SetUserData(parser, &state);
+    XML_SetElementHandler(parser, styles_start_element, styles_end_element);
+    status = XML_Parse(parser, xml_data, (int)strlen(xml_data), 1);
+    XML_ParserFree(parser);
+    free(xml_data);
 
-            /* Count formats */
-            int count = 0;
-            for (xmlNodePtr fmt = node->children; fmt; fmt = fmt->next) {
-                if (fmt->type == XML_ELEMENT_NODE) {
-                    count++;
-                }
-            }
-
-            conv->styles.formats      = calloc((size_t)count, sizeof(numFormat));
-            conv->styles.format_count = count;
-
-            /* Parse formats */
-            int idx = 0;
-            for (xmlNodePtr fmt = node->children; fmt; fmt = fmt->next) {
-                if (fmt->type == XML_ELEMENT_NODE) {
-                    xmlChar *id   = xmlGetProp(fmt, (const xmlChar *)"numFmtId");
-                    xmlChar *code = xmlGetProp(fmt, (const xmlChar *)"formatCode");
-
-                    if (id) {
-                        conv->styles.formats[idx].id = atoi((char *)id);
-                        xmlFree(id);
-                    }
-                    if (code) {
-                        conv->styles.formats[idx].format_code = str_duplicate((char *)code);
-                        xmlFree(code);
-                    }
-                    idx++;
-                }
-            }
-        }
+    if (!status) {
+        fprintf(stderr, "Error: Failed to parse xl/styles.xml\n");
+        return -1;
     }
 
-    /* Parse cellXfs */
-    for (xmlNodePtr node = root->children; node; node = node->next) {
-        if (node->type == XML_ELEMENT_NODE &&
-            xmlStrcmp(node->name, (const xmlChar *)"cellXfs") == 0) {
-
-            /* Count xfs */
-            int count = 0;
-            for (xmlNodePtr xf = node->children; xf; xf = xf->next) {
-                if (xf->type == XML_ELEMENT_NODE) {
-                    count++;
-                }
-            }
-
-            conv->styles.cell_xfs       = calloc((size_t)count, sizeof(int));
-            conv->styles.cell_xfs_count = count;
-
-            /* Parse xfs */
-            int idx = 0;
-            for (xmlNodePtr xf = node->children; xf; xf = xf->next) {
-                if (xf->type == XML_ELEMENT_NODE) {
-                    xmlChar *fmt_id = xmlGetProp(xf, (const xmlChar *)"numFmtId");
-                    if (fmt_id) {
-                        conv->styles.cell_xfs[idx] = atoi((char *)fmt_id);
-                        xmlFree(fmt_id);
-                    }
-                    idx++;
-                }
-            }
-        }
-    }
-
-    xmlFreeDoc(doc);
     return 0;
+}
+
+/* Worksheet parsing state */
+typedef struct {
+    xlsx2csvConverter *conv;
+    FILE              *outfile;
+    csvWriter         *writer;
+    int                global_max_col;
+    int                last_row;
+    bool               in_sheet_data;
+    bool               in_row;
+    bool               in_cell;
+    bool               in_v;
+    bool               in_is;
+    bool               in_t;
+    int                current_row_num;
+    bool               current_row_hidden;
+    char              *current_cell_ref;
+    char              *current_cell_type;
+    char              *current_cell_style;
+    char              *current_cell_value;
+    size_t             current_cell_value_len;
+    size_t             current_cell_value_capacity;
+    bool               in_inline_str;
+    char              *current_dimension_ref;
+#define MAX_COLS 1024
+    char *cells[MAX_COLS];
+    int   max_col;
+} worksheet_state;
+
+static void worksheet_start_element(void *userData, const XML_Char *name, const XML_Char **atts)
+{
+    worksheet_state *state = (worksheet_state *)userData;
+
+    if (strcmp(name, "sheetData") == 0) {
+        state->in_sheet_data = true;
+    } else if (strcmp(name, "dimension") == 0) {
+        for (int i = 0; atts[i]; i += 2) {
+            if (strcmp(atts[i], "ref") == 0) {
+                free(state->current_dimension_ref);
+                state->current_dimension_ref = str_duplicate(atts[i + 1]);
+                /* Parse dimension to get max column */
+                char *colon = strchr(state->current_dimension_ref, ':');
+                if (colon) {
+                    char col_name[10] = {0};
+                    int  j            = 0;
+                    for (char *p = colon + 1; *p && isalpha(*p); p++) {
+                        col_name[j++] = *p;
+                    }
+                    col_name[j]           = '\0';
+                    state->global_max_col = column_name_to_index(col_name);
+                }
+            }
+        }
+    } else if (strcmp(name, "row") == 0 && state->in_sheet_data) {
+        state->in_row             = true;
+        state->current_row_num    = state->last_row + 1;
+        state->current_row_hidden = false;
+        state->max_col            = -1;
+        memset(state->cells, 0, sizeof(state->cells));
+
+        for (int i = 0; atts[i]; i += 2) {
+            if (strcmp(atts[i], "r") == 0) {
+                state->current_row_num = atoi(atts[i + 1]);
+            } else if (strcmp(atts[i], "hidden") == 0) {
+                if (strcmp(atts[i + 1], "1") == 0 || strcmp(atts[i + 1], "true") == 0) {
+                    state->current_row_hidden = true;
+                }
+            }
+        }
+
+        /* Write empty rows if skip_empty_lines is false */
+        if (!state->conv->options.skip_empty_lines) {
+            for (int i = state->last_row + 1; i < state->current_row_num; i++) {
+                fputs(state->conv->options.lineterminator, state->outfile);
+            }
+        }
+        state->last_row = state->current_row_num;
+    } else if (strcmp(name, "c") == 0 && state->in_row) {
+        state->in_cell = true;
+        free(state->current_cell_ref);
+        free(state->current_cell_type);
+        free(state->current_cell_style);
+        free(state->current_cell_value);
+        state->current_cell_ref            = NULL;
+        state->current_cell_type           = NULL;
+        state->current_cell_style          = NULL;
+        state->current_cell_value          = NULL;
+        state->current_cell_value_len      = 0;
+        state->current_cell_value_capacity = 0;
+        state->in_v                        = false;
+        state->in_is                       = false;
+        state->in_t                        = false;
+        state->in_inline_str               = false;
+
+        for (int i = 0; atts[i]; i += 2) {
+            if (strcmp(atts[i], "r") == 0) {
+                state->current_cell_ref = str_duplicate(atts[i + 1]);
+            } else if (strcmp(atts[i], "t") == 0) {
+                state->current_cell_type = str_duplicate(atts[i + 1]);
+            } else if (strcmp(atts[i], "s") == 0) {
+                state->current_cell_style = str_duplicate(atts[i + 1]);
+            }
+        }
+    } else if (strcmp(name, "v") == 0 && state->in_cell) {
+        state->in_v = true;
+    } else if (strcmp(name, "is") == 0 && state->in_cell) {
+        state->in_is         = true;
+        state->in_inline_str = true;
+    } else if (strcmp(name, "t") == 0) {
+        /* <t> can be inside <is> (inlineStr) or inside <v> (shared string reference) */
+        if (state->in_is && state->in_cell) {
+            state->in_t = true;
+        } else if (state->in_v && state->in_cell) {
+            state->in_t = true;
+        }
+    }
+}
+
+static void worksheet_end_element(void *userData, const XML_Char *name)
+{
+    worksheet_state *state = (worksheet_state *)userData;
+
+    if (strcmp(name, "sheetData") == 0) {
+        state->in_sheet_data = false;
+    } else if (strcmp(name, "row") == 0 && state->in_row) {
+        /* Check if row is hidden */
+        if (state->current_row_hidden && state->conv->options.skip_hidden_rows) {
+            /* Free cells and skip */
+            for (int i = 0; i < MAX_COLS; i++) {
+                free(state->cells[i]);
+                state->cells[i] = NULL;
+            }
+            state->in_row = false;
+            return;
+        }
+
+        /* Process row */
+        /* Check if row is empty */
+        bool is_empty = true;
+        for (int i = 0; i <= state->max_col; i++) {
+            if (state->cells[i] && state->cells[i][0] != '\0') {
+                is_empty = false;
+                break;
+            }
+        }
+
+        /* Check for date format error */
+        if (state->conv->has_date_error) {
+            for (int i = 0; i < MAX_COLS; i++) {
+                free(state->cells[i]);
+                state->cells[i] = NULL;
+            }
+            state->in_row = false;
+            return;
+        }
+
+        /* Write row if not empty or if we're not skipping empty lines */
+        if (!is_empty || !state->conv->options.skip_empty_lines) {
+            int output_max_col = state->max_col;
+            if (state->conv->options.skip_trailing_columns) {
+                while (output_max_col >= 0 &&
+                       (!state->cells[output_max_col] || state->cells[output_max_col][0] == '\0')) {
+                    output_max_col--;
+                }
+            } else {
+                if (state->global_max_col > output_max_col) {
+                    output_max_col = state->global_max_col;
+                }
+            }
+
+            csv_writer_reset_row(state->writer);
+            csv_writer_set_field_count(state->writer, output_max_col + 1);
+
+            if (output_max_col >= 0) {
+                for (int i = 0; i <= output_max_col; i++) {
+                    csv_write_field(state->writer, state->cells[i] ? state->cells[i] : "");
+                }
+            }
+            fputs(state->conv->options.lineterminator, state->outfile);
+        }
+
+        /* Free cells */
+        for (int i = 0; i < MAX_COLS; i++) {
+            free(state->cells[i]);
+            state->cells[i] = NULL;
+        }
+
+        state->in_row = false;
+    } else if (strcmp(name, "c") == 0 && state->in_cell) {
+        /* Extract column from reference */
+        int col_index = 0;
+        if (state->current_cell_ref) {
+            char col_name[10] = {0};
+            int  j            = 0;
+            for (const char *p = state->current_cell_ref; *p && isalpha(*p); p++) {
+                col_name[j++] = *p;
+            }
+            col_name[j] = '\0';
+            col_index   = column_name_to_index(col_name);
+        }
+
+        /* Get cell value */
+        char *value = NULL;
+        if (state->current_cell_type && strcmp(state->current_cell_type, "inlineStr") == 0) {
+            /* inlineStr: value should be collected from <is><t>...</t></is> */
+            if (state->current_cell_value) {
+                value = str_duplicate(state->current_cell_value);
+            } else {
+                value = str_duplicate("");
+            }
+        } else if (state->current_cell_value) {
+            value = format_cell_value(state->current_cell_value,
+                                      state->current_cell_type,
+                                      state->current_cell_style,
+                                      state->conv);
+        }
+
+        /* Store value in correct column */
+        if (col_index >= 0 && col_index < MAX_COLS) {
+            if (value) {
+                state->cells[col_index] = value;
+            } else {
+                state->cells[col_index] = str_duplicate("");
+            }
+            if (col_index > state->max_col) {
+                state->max_col = col_index;
+            }
+        } else if (value) {
+            free(value);
+        }
+
+        free(state->current_cell_ref);
+        free(state->current_cell_type);
+        free(state->current_cell_style);
+        free(state->current_cell_value);
+        state->current_cell_ref            = NULL;
+        state->current_cell_type           = NULL;
+        state->current_cell_style          = NULL;
+        state->current_cell_value          = NULL;
+        state->current_cell_value_len      = 0;
+        state->current_cell_value_capacity = 0;
+
+        state->in_cell = false;
+    } else if (strcmp(name, "v") == 0) {
+        state->in_v = false;
+    } else if (strcmp(name, "is") == 0) {
+        state->in_is         = false;
+        state->in_inline_str = false;
+    } else if (strcmp(name, "t") == 0) {
+        state->in_t = false;
+    }
+}
+
+static void worksheet_char_data(void *userData, const XML_Char *s, int len)
+{
+    worksheet_state *state = (worksheet_state *)userData;
+
+    /* Collect text data:
+     * - If in <v> node (direct text content, no <t> wrapper)
+     * - If in <is><t> (inline string with <t> wrapper)
+     */
+    if ((state->in_v && state->in_cell) || (state->in_t && state->in_is && state->in_cell)) {
+        size_t new_len = state->current_cell_value_len + (size_t)len;
+        if (new_len >= state->current_cell_value_capacity) {
+            state->current_cell_value_capacity = new_len + 256;
+            state->current_cell_value =
+                realloc(state->current_cell_value, state->current_cell_value_capacity + 1);
+            if (!state->current_cell_value) {
+                return;
+            }
+        }
+        memcpy(state->current_cell_value + state->current_cell_value_len, s, (size_t)len);
+        state->current_cell_value_len      = new_len;
+        state->current_cell_value[new_len] = '\0';
+    }
 }
 
 /* Parse worksheet and convert to CSV */
@@ -325,257 +828,45 @@ int parse_worksheet(xlsx2csvConverter *conv, int sheet_index, FILE *outfile)
         return -1;
     }
 
-    xmlDocPtr doc = xmlReadMemory(xml_data, strlen(xml_data), NULL, NULL, 0);
+    XML_Parser parser = XML_ParserCreate(NULL);
+    if (!parser) {
+        free(xml_data);
+        return -1;
+    }
+
+    worksheet_state state = {0};
+    state.conv            = conv;
+    state.outfile         = outfile;
+    state.writer          = csv_writer_create(outfile, &conv->options);
+    state.last_row        = 0;
+    state.global_max_col  = -1;
+
+    if (!state.writer) {
+        XML_ParserFree(parser);
+        free(xml_data);
+        return -1;
+    }
+
+    XML_SetUserData(parser, &state);
+    XML_SetElementHandler(parser, worksheet_start_element, worksheet_end_element);
+    XML_SetCharacterDataHandler(parser, worksheet_char_data);
+
+    int status = XML_Parse(parser, xml_data, (int)strlen(xml_data), 1);
+    XML_ParserFree(parser);
     free(xml_data);
 
-    if (!doc) {
+    csv_writer_free(state.writer);
+
+    free(state.current_dimension_ref);
+    free(state.current_cell_ref);
+    free(state.current_cell_type);
+    free(state.current_cell_style);
+    free(state.current_cell_value);
+
+    if (!status) {
         fprintf(stderr, "Error: Failed to parse %s\n", filename);
         return -1;
     }
-
-    xmlNodePtr root = xmlDocGetRootElement(doc);
-    if (!root) {
-        xmlFreeDoc(doc);
-        return -1;
-    }
-
-    /* Find sheetData node and parse dimension */
-    xmlNodePtr sheetData      = NULL;
-    int        global_max_col = -1;
-
-    for (xmlNodePtr node = root->children; node; node = node->next) {
-        if (node->type == XML_ELEMENT_NODE) {
-            if (xmlStrcmp(node->name, (const xmlChar *)"sheetData") == 0) {
-                sheetData = node;
-            } else if (xmlStrcmp(node->name, (const xmlChar *)"dimension") == 0) {
-                /* Parse dimension to get max column */
-                xmlChar *ref = xmlGetProp(node, (const xmlChar *)"ref");
-                if (ref) {
-                    /* ref format: "A1:D6" or just "A1" */
-                    char *colon = strchr((char *)ref, ':');
-                    if (colon) {
-                        /* Extract column from end reference (e.g., "D6" -> "D") */
-                        char col_name[10] = {0};
-                        int  i            = 0;
-                        for (char *p = colon + 1; *p && isalpha(*p); p++) {
-                            col_name[i++] = *p;
-                        }
-                        col_name[i]    = '\0';
-                        global_max_col = column_name_to_index(col_name);
-                    }
-                    xmlFree(ref);
-                }
-            }
-        }
-    }
-
-    if (!sheetData) {
-        xmlFreeDoc(doc);
-        return 0; /* Empty sheet */
-    }
-
-    /* Create CSV writer */
-    csvWriter *writer = csv_writer_create(outfile, &conv->options);
-    if (!writer) {
-        xmlFreeDoc(doc);
-        return -1;
-    }
-
-    /* Process rows */
-    int last_row = 0;
-    for (xmlNodePtr row = sheetData->children; row; row = row->next) {
-        if (row->type != XML_ELEMENT_NODE || xmlStrcmp(row->name, (const xmlChar *)"row") != 0) {
-            continue;
-        }
-
-        /* Check if row is hidden */
-        xmlChar *hidden = xmlGetProp(row, (const xmlChar *)"hidden");
-        if (hidden && conv->options.skip_hidden_rows) {
-            if (xmlStrcmp(hidden, (const xmlChar *)"1") == 0 ||
-                xmlStrcmp(hidden, (const xmlChar *)"true") == 0) {
-                xmlFree(hidden);
-                continue;
-            }
-        }
-        if (hidden) {
-            xmlFree(hidden);
-        }
-
-        /* Get row number */
-        xmlChar *row_num_str = xmlGetProp(row, (const xmlChar *)"r");
-        int      row_num     = row_num_str ? atoi((char *)row_num_str) : last_row + 1;
-        if (row_num_str) {
-            xmlFree(row_num_str);
-        }
-
-        /* Write empty rows if skip_empty_lines is false */
-        if (!conv->options.skip_empty_lines) {
-            for (int i = last_row + 1; i < row_num; i++) {
-                fputs(conv->options.lineterminator, outfile);
-            }
-        }
-        last_row = row_num;
-
-/* Collect cells */
-#define MAX_COLS 1024
-        char *cells[MAX_COLS] = {0};
-        int   max_col         = -1;
-
-        for (xmlNodePtr cell = row->children; cell; cell = cell->next) {
-            if (cell->type != XML_ELEMENT_NODE) {
-                continue;
-            }
-            if (xmlStrcmp(cell->name, (const xmlChar *)"c") != 0) {
-                continue;
-            }
-
-            /* Get cell reference (e.g., "A1", "B2") */
-            xmlChar *ref        = xmlGetProp(cell, (const xmlChar *)"r");
-            xmlChar *type_attr  = xmlGetProp(cell, (const xmlChar *)"t");
-            xmlChar *style_attr = xmlGetProp(cell, (const xmlChar *)"s");
-
-            /* Extract column from reference */
-            int col_index = 0;
-            if (ref) {
-                char col_name[10] = {0};
-                int  i            = 0;
-                for (const xmlChar *p = ref; *p && isalpha(*p); p++) {
-                    col_name[i++] = *p;
-                }
-                col_name[i] = '\0';
-                col_index   = column_name_to_index(col_name);
-            }
-
-            /* Find value */
-            xmlNodePtr v_node  = NULL;
-            xmlNodePtr is_node = NULL;
-            for (xmlNodePtr child = cell->children; child; child = child->next) {
-                if (child->type == XML_ELEMENT_NODE) {
-                    if (xmlStrcmp(child->name, (const xmlChar *)"v") == 0) {
-                        v_node = child;
-                    } else if (xmlStrcmp(child->name, (const xmlChar *)"is") == 0) {
-                        is_node = child;
-                    }
-                }
-            }
-
-            /* Get cell value */
-            char *value = NULL;
-            if (type_attr && xmlStrcmp(type_attr, (const xmlChar *)"inlineStr") == 0 && is_node) {
-                /* Handle inline string: look for <t> inside <is> */
-                bool found = false;
-                for (xmlNodePtr t = is_node->children; t; t = t->next) {
-                    if (t->type == XML_ELEMENT_NODE &&
-                        xmlStrcmp(t->name, (const xmlChar *)"t") == 0) {
-                        xmlChar *content = xmlNodeGetContent(t);
-                        if (content) {
-                            value = str_duplicate((char *)content);
-                            xmlFree(content);
-                        }
-                        found = true;
-                        break;
-                    }
-                }
-                /* If inlineStr but no <t> found, it's an empty string */
-                if (!found) {
-                    value = str_duplicate("");
-                }
-            } else if (type_attr && xmlStrcmp(type_attr, (const xmlChar *)"inlineStr") == 0) {
-                /* inlineStr without <is> node - empty string */
-                value = str_duplicate("");
-            } else if (v_node) {
-                xmlChar *content = xmlNodeGetContent(v_node);
-                if (content) {
-                    value = format_cell_value(
-                        (char *)content, (char *)type_attr, (char *)style_attr, conv);
-                    xmlFree(content);
-                }
-            }
-
-            /* Store value in correct column */
-            if (col_index >= 0 && col_index < MAX_COLS) {
-                if (value) {
-                    cells[col_index] = value;
-                } else {
-                    cells[col_index] = str_duplicate("");
-                }
-                if (col_index > max_col) {
-                    max_col = col_index;
-                }
-            } else if (value) {
-                free(value); /* Free if column out of range */
-            }
-
-            if (ref)
-                xmlFree(ref);
-            if (type_attr)
-                xmlFree(type_attr);
-            if (style_attr)
-                xmlFree(style_attr);
-        }
-
-        /* Check if row is empty */
-        bool is_empty = true;
-        for (int i = 0; i <= max_col; i++) {
-            if (cells[i] && cells[i][0] != '\0') {
-                is_empty = false;
-                break;
-            }
-        }
-
-        /* Check for date format error - stop processing before writing this row */
-        if (conv->has_date_error) {
-            /* Free cells and break */
-            for (int i = 0; i < MAX_COLS; i++) {
-                free(cells[i]);
-            }
-            break;
-        }
-
-        /* Write row if not empty or if we're not skipping empty lines */
-        if (!is_empty || !conv->options.skip_empty_lines) {
-            /* Adjust max_col if skip_trailing_columns is enabled */
-            int output_max_col = max_col;
-            if (conv->options.skip_trailing_columns) {
-                while (output_max_col >= 0 &&
-                       (!cells[output_max_col] || cells[output_max_col][0] == '\0')) {
-                    output_max_col--;
-                }
-            } else {
-                /* Use global max column if available */
-                if (global_max_col > output_max_col) {
-                    output_max_col = global_max_col;
-                }
-            }
-
-            /* Reset writer field index for new row */
-            csv_writer_reset_row(writer);
-
-            /* Set field count for this row (needed for proper empty field quoting) */
-            csv_writer_set_field_count(writer, output_max_col + 1);
-
-            /* Write cells - ensure we only write up to output_max_col + 1 cells */
-            if (output_max_col >= 0) {
-                for (int i = 0; i <= output_max_col; i++) {
-                    csv_write_field(writer, cells[i] ? cells[i] : "");
-                }
-            } else {
-                /* No cells in row, but still need to output empty line if not skipping */
-                if (!conv->options.skip_empty_lines) {
-                    /* Output nothing for empty row */
-                }
-            }
-            fputs(conv->options.lineterminator, outfile);
-        }
-
-        /* Free cells */
-        for (int i = 0; i < MAX_COLS; i++) {
-            free(cells[i]);
-        }
-    }
-
-    csv_writer_free(writer);
-    xmlFreeDoc(doc);
 
     return 0;
 }
