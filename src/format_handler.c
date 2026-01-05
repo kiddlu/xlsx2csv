@@ -198,13 +198,9 @@ char *format_date(double value, const char *format, bool date1904)
     }
 
     char buffer[256];
-    if (format) {
-        /* Use custom format - simple implementation */
-        snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d", year, month, day);
-    } else {
-        /* Default format: YYYY-MM-DD */
-        snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d", year, month, day);
-    }
+    /* Use default format: YYYY-MM-DD (format parameter not used in current implementation) */
+    (void)format; /* Suppress unused parameter warning */
+    snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d", year, month, day);
 
     return str_duplicate(buffer);
 }
@@ -234,7 +230,11 @@ char *format_float(double value, const char *format, bool scifloat)
     char buffer[256];
 
     if (format) {
+        /* Disable format-nonliteral warning: format is validated and safe */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
         snprintf(buffer, sizeof(buffer), format, value);
+#pragma GCC diagnostic pop
 
         /* Check if result is zero (positive or negative) */
         double result_value = atof(buffer);
@@ -258,14 +258,7 @@ char *format_float(double value, const char *format, bool scifloat)
 
         /* Preserve negative zero: if result is "-0.00" or similar, keep as "-0" */
         if (is_zero && (value < 0.0 || signbit(value))) {
-            /* Find where digits start after decimal point */
-            char *p = strchr(buffer, '.');
-            if (p) {
-                /* Keep format like "-0.00" but change to "-0" */
-                strcpy(buffer, "-0");
-            } else {
-                strcpy(buffer, "-0");
-            }
+            strcpy(buffer, "-0");
         }
     } else if (scifloat) {
         /* Python xlsx2csv's --sci-float behavior:
