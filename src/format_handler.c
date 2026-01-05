@@ -289,77 +289,75 @@ char *format_time(double value, const char *format)
 }
 
 /* Format float value */
-char *format_float(double value, const char *format, bool scifloat)
+char *format_float(double value, const char *format, bool scifloat, const char *original_str)
 {
     char buffer[256];
 
     if (format) {
-        /* Disable format-nonliteral warning: format is validated and safe */
+        /* Check if value is integer AND original string doesn't indicate float
+         * True integers: value is close to integer AND no scientific notation in original
+         * Float zeros: value is near-zero BUT from scientific notation (e.g., 1e-100)
+         */
+        bool is_integer_value = fabs(value - round(value)) < 1e-10;
+        bool has_scientific =
+            original_str && (strchr(original_str, 'e') || strchr(original_str, 'E'));
+
+        if (is_integer_value && !has_scientific) {
+            /* Python behavior: true integers are output as integers even with --floatformat */
+            snprintf(buffer, sizeof(buffer), "%.0f", value);
+        } else {
+            /* Float values or scientific notation zeros: apply format */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
-        snprintf(buffer, sizeof(buffer), format, value);
+            snprintf(buffer, sizeof(buffer), format, value);
 #pragma GCC diagnostic pop
-
-        /* Check if result is zero (positive or negative) */
-        double result_value = atof(buffer);
-        bool   is_zero      = fabs(result_value) < 1e-300;
-
-        if (!is_zero) {
-            /* Strip trailing zeros after decimal point (Python xlsx2csv behavior) */
-            char *p = strchr(buffer, '.');
-            if (p) {
-                char *end = buffer + strlen(buffer) - 1;
-                while (end > p && *end == '0') {
-                    *end = '\0';
-                    end--;
-                }
-                /* Remove trailing decimal point if no digits after it */
-                if (*end == '.') {
-                    *end = '\0';
-                }
-            }
         }
 
-        /* Preserve negative zero with proper formatting */
-        if (is_zero && (value < 0.0 || signbit(value))) {
-            /* For negative zero, keep the format's decimal places
-             * e.g., "%.02f" -> "-0.00", not "-0"
-             */
-            if (strchr(buffer, '.')) {
-                /* Already formatted with decimals, just ensure negative sign */
-                if (buffer[0] != '-') {
-                    memmove(buffer + 1, buffer, strlen(buffer) + 1);
-                    buffer[0] = '-';
-                }
-            } else {
-                /* No decimals in format, use "-0" */
-                strcpy(buffer, "-0");
-            }
-        }
+        return str_duplicate(buffer);
     } else if (scifloat) {
         /* Python xlsx2csv's --sci-float behavior:
          * Use regular decimal format (not scientific notation)
-         * This matches Python's behavior where scifloat doesn't force scientific notation
+         * But for integer values (not from scientific notation), output as integer
          */
-        snprintf(buffer, sizeof(buffer), "%f", value);
 
-        /* Check if result is zero */
-        double result_value = atof(buffer);
-        bool   is_zero      = fabs(result_value) < 1e-300;
+        /* Check if original value contains scientific notation */
+        bool has_scientific =
+            original_str && (strchr(original_str, 'e') || strchr(original_str, 'E'));
 
-        if (!is_zero) {
-            /* Strip trailing zeros */
-            char *p = strchr(buffer, '.');
-            if (p) {
-                char *end = buffer + strlen(buffer) - 1;
-                while (end > p && *end == '0') {
-                    *end = '\0';
-                    end--;
-                }
-                if (*end == '.') {
-                    *end = '\0';
+        /* Check if value is integer */
+        bool is_integer_value = fabs(value - round(value)) < 1e-10;
+
+        if (is_integer_value && !has_scientific) {
+            /* Integer from normal notation: output as integer even with --sci-float */
+            snprintf(buffer, sizeof(buffer), "%.0f", value);
+        } else {
+            /* Float or from scientific notation: use %f format */
+            snprintf(buffer, sizeof(buffer), "%f", value);
+
+            /* Strip trailing zeros for non-zero values (but not for values from scientific notation
+             * that became zero) */
+            double result_value = atof(buffer);
+            bool   is_zero      = fabs(result_value) < 1e-300;
+
+            /* Only strip trailing zeros if:
+             * 1. Value is not zero, OR
+             * 2. Value is zero but NOT from scientific notation
+             */
+            if (!is_zero) {
+                char *p = strchr(buffer, '.');
+                if (p) {
+                    char *end = buffer + strlen(buffer) - 1;
+                    while (end > p && *end == '0') {
+                        *end = '\0';
+                        end--;
+                    }
+                    if (*end == '.') {
+                        *end = '\0';
+                    }
                 }
             }
+            /* For values from scientific notation that became zero, keep "0.000000" or "-0.000000"
+             */
         }
     } else if (fabs(value - round(value)) < 1e-9 && fabs(value) > 1e-200) {
         /* Integer value (but not subnormal/tiny values)
@@ -381,24 +379,10 @@ char *format_float(double value, const char *format, bool scifloat)
             snprintf(buffer, sizeof(buffer), "0");
         }
     } else {
-        /* Use %f format (default 6 decimal places), then aggressively strip trailing zeros
-         * This matches Python's behavior: ("%f" % data).rstrip('0').rstrip('.')
+        /* Default: Use %.15g format to preserve precision
+         * This matches Python xlsx2csv's default behavior
          */
-        snprintf(buffer, sizeof(buffer), "%f", value);
-
-        /* Strip trailing zeros after decimal point */
-        char *p = strchr(buffer, '.');
-        if (p) {
-            char *end = buffer + strlen(buffer) - 1;
-            while (end > p && *end == '0') {
-                *end = '\0';
-                end--;
-            }
-            /* Remove trailing decimal point if no digits after it */
-            if (*end == '.') {
-                *end = '\0';
-            }
-        }
+        snprintf(buffer, sizeof(buffer), "%.15g", value);
     }
 
     return str_duplicate(buffer);
@@ -455,6 +439,13 @@ char *format_cell_value(const char        *value,
 {
     if (!value) {
         return str_duplicate("");
+    }
+
+    /* Handle Excel error values - preserve them as-is
+     * Common Excel errors: #DIV/0!, #N/A, #NAME?, #NULL!, #NUM!, #REF!, #VALUE!
+     */
+    if (value[0] == '#') {
+        return str_duplicate(value);
     }
 
     /* Handle shared string */
@@ -529,9 +520,10 @@ char *format_cell_value(const char        *value,
 
             bool format_starts_with_0_0 = format_str && strncmp(format_str, "0.0", 3) == 0;
             if (format_starts_with_0_0 && conv->options.floatformat) {
-                return format_float(num_value, conv->options.floatformat, conv->options.scifloat);
+                return format_float(
+                    num_value, conv->options.floatformat, conv->options.scifloat, value);
             } else {
-                return format_float(num_value, NULL, conv->options.scifloat);
+                return format_float(num_value, NULL, conv->options.scifloat, value);
             }
         } else if (ftype == FORMAT_FLOAT) {
             /* Get the format ID for this style */
@@ -578,48 +570,154 @@ char *format_cell_value(const char        *value,
                 }
             }
 
-            /* First priority: Try to apply Excel number format (if no floatformat option)
-             * Python only applies formats starting with "0.0" (e.g., "0.00", "0.00E+00")
-             * Formats with "#" or "," are NOT applied
+            /* Python behavior is complex:
+             * - Standard formats (like "0.00", "#,##0.00", etc.) are NOT applied when --floatformat
+             * exists
+             * - Custom formats (like "0.00_ ", "0.00 ") ARE applied (keep Excel precision)
+             * Check format string patterns
              */
+            bool is_standard_format = false;
+            if (format_str) {
+                /* Standard formats: starts with # or 0, no decorators like _ or spaces after
+                 * numbers */
+                if (strcmp(format_str, "0") == 0 || strcmp(format_str, "0.00") == 0 ||
+                    strcmp(format_str, "0.00E+00") == 0 || strcmp(format_str, "0.00e+00") == 0 ||
+                    strncmp(format_str, "#,##0", 5) == 0) {
+                    is_standard_format = true;
+                }
+            }
+
+            bool has_custom_format =
+                format_str && !is_standard_format && strncmp(format_str, "0.0", 3) == 0;
+
+            /* Apply Excel format in these cases:
+             * 1. No --floatformat: apply any format starting with "0.0"
+             * 2. Has --floatformat WITH custom format: DO NOT apply Excel format here
+             *    (will be handled in floatformat path with custom stripping logic)
+             */
+            bool should_apply_excel = false;
             if (!conv->options.floatformat && format_str && strncmp(format_str, "0.0", 3) == 0) {
+                should_apply_excel = true;
+            }
+            /* Note: When floatformat is present, skip Excel format application
+             * and let the floatformat path handle it */
+
+            if (should_apply_excel) {
+                /* Custom format: apply Excel format and keep precision */
                 char *excel_formatted = apply_excel_format(num_value, format_str);
                 if (excel_formatted) {
                     return excel_formatted;
                 }
+                /* If apply_excel_format returns NULL, handle custom format
+                 * Python xlsx2csv precision rule for custom formats:
+                 * output_precision = excel_decimal_places + modifier_length
+                 * where modifier_length = characters after the last '0' in format
+                 * Examples:
+                 * - "0.00_ " (2 decimals + 2 chars) -> 4 decimal precision
+                 * - "0.00 "  (2 decimals + 1 char)  -> 3 decimal precision
+                 * - "0.0000" (4 decimals + 0 chars) -> 4 decimal precision
+                 * Then strip trailing zeros for custom formats
+                 */
+                int         decimal_places = 2;  // default
+                const char *dot            = strchr(format_str, '.');
+                if (dot) {
+                    decimal_places = 0;
+                    const char *p  = dot + 1;
+                    while (*p == '0') {
+                        decimal_places++;
+                        p++;
+                    }
+                    /* Count modifier length (characters after last '0') */
+                    int modifier_length = strlen(p);
+
+                    /* For custom formats, add modifier length to precision */
+                    int output_decimal_places = decimal_places;
+                    if (has_custom_format) {
+                        output_decimal_places = decimal_places + modifier_length;
+                    }
+
+                    char format_buf[32];
+                    snprintf(format_buf, sizeof(format_buf), "%%.%df", output_decimal_places);
+
+                    char buffer[256];
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
+                    snprintf(buffer, sizeof(buffer), format_buf, num_value);
+#pragma GCC diagnostic pop
+
+                    /* Strip trailing zeros for custom formats
+                     * Python behavior differs based on --floatformat:
+                     * - With --floatformat: always strip trailing zeros
+                     * - Without --floatformat: only strip if last digit is NOT 0
+                     * Examples:
+                     * - With --floatformat: 5.10 -> 5.1
+                     * - Without --floatformat: 83.5600 -> 83.5600 (keep), -1.7215 -> -1.7215
+                     * (strip)
+                     */
+                    if (has_custom_format) {
+                        bool should_strip = false;
+                        if (conv->options.floatformat) {
+                            /* With --floatformat: always strip */
+                            should_strip = true;
+                        } else {
+                            /* Without --floatformat: only strip if last digit is not 0 */
+                            size_t len = strlen(buffer);
+                            if (len > 0 && buffer[len - 1] != '0') {
+                                should_strip = true;
+                            }
+                        }
+
+                        if (should_strip) {
+                            char *p_buf = strchr(buffer, '.');
+                            if (p_buf) {
+                                char *end = buffer + strlen(buffer) - 1;
+                                while (end > p_buf && *end == '0') {
+                                    *end = '\0';
+                                    end--;
+                                }
+                                if (*end == '.') {
+                                    *end = '\0';
+                                }
+                            }
+                        }
+                    }
+
+                    return str_duplicate(buffer);
+                }
             }
 
-            /* Second priority: Apply floatformat option if specified */
-            bool format_starts_with_0_0 = format_str && strncmp(format_str, "0.0", 3) == 0;
-            bool has_scientific         = strchr(value, 'e') != NULL || strchr(value, 'E') != NULL;
-
+            /* Second priority: Apply floatformat option if specified
+             * Python behavior:
+             * - For standard formats (#,##0.00, etc.): do NOT apply floatformat
+             * - For custom formats (0.00_ , etc.): apply floatformat EVEN for integer values
+             */
             /* Check if original value string contains negative zero */
             double parsed_value = atof(value);
             bool   is_negative_zero =
                 (strcmp(value, "-0") == 0) ||
                 (value[0] == '-' && fabs(parsed_value) < 1e-300 && signbit(parsed_value));
 
-            if (has_scientific && conv->options.floatformat) {
-                /* Scientific notation: always apply floatformat if specified */
-                char *result =
-                    format_float(num_value, conv->options.floatformat, conv->options.scifloat);
-                if (is_negative_zero && strcmp(result, "0") == 0) {
-                    free(result);
-                    return str_duplicate("-0");
-                }
-                return result;
-            } else if (format_starts_with_0_0 && conv->options.floatformat) {
-                /* Format starts with '0.0': apply floatformat if specified */
-                char *result =
-                    format_float(num_value, conv->options.floatformat, conv->options.scifloat);
+            if (conv->options.floatformat && has_custom_format) {
+                /* With --floatformat and custom format: apply floatformat */
+                /* For custom formats, even integer values should be formatted with decimals */
+                char format_buf[256];
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
+                snprintf(format_buf, sizeof(format_buf), conv->options.floatformat, num_value);
+#pragma GCC diagnostic pop
+                return str_duplicate(format_buf);
+            } else if (conv->options.floatformat && !is_standard_format) {
+                /* With --floatformat but no Excel format: apply for floats only */
+                char *result = format_float(
+                    num_value, conv->options.floatformat, conv->options.scifloat, value);
                 if (is_negative_zero && strcmp(result, "0") == 0) {
                     free(result);
                     return str_duplicate("-0");
                 }
                 return result;
             } else {
-                /* Default formatting (no floatformat) */
-                return format_float(num_value, NULL, conv->options.scifloat);
+                /* Without --floatformat OR with standard format: default formatting */
+                return format_float(num_value, NULL, conv->options.scifloat, value);
             }
         }
     }
@@ -640,14 +738,22 @@ char *format_cell_value(const char        *value,
         bool is_negative_zero =
             (strcmp(value, "-0") == 0) || (value[0] == '-' && fabs(num_value) < 1e-300);
 
-        /* Apply floatformat only if original value has scientific notation */
+        /* Python xlsx2csv behavior for --floatformat:
+         * - Only applies floatformat if the cell has an Excel number format
+         * - For cells without Excel format: use default %.15g precision
+         * - Exception: scientific notation values always apply floatformat
+         */
         if (conv->options.floatformat && has_scientific) {
-            return format_float(num_value, conv->options.floatformat, conv->options.scifloat);
+            /* Scientific notation: always apply floatformat */
+            return format_float(
+                num_value, conv->options.floatformat, conv->options.scifloat, value);
         }
 
-        /* Apply scifloat formatting if enabled (but not for integers) */
+        /* For cells without Excel format: do NOT apply --floatformat option
+         * (This branch is for cells without style or with style but no custom number format)
+         * Use default formatting instead */
         if (conv->options.scifloat && !is_integer) {
-            return format_float(num_value, NULL, conv->options.scifloat);
+            return format_float(num_value, NULL, conv->options.scifloat, value);
         }
 
         /* Otherwise use default formatting */

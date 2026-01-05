@@ -232,6 +232,39 @@ if [ -f "test_data/float_format.xlsx" ]; then
     run_test "combo_float_tab_quote" "test_data/float_format.xlsx" "--floatformat %.03f -d tab -q nonnumeric"
 fi
 
+# Real-world scenario tests
+echo -e "\n=== Real-World Scenarios ==="
+if [ -f "test_data/stock_data_1107.xlsx" ]; then
+    run_test "stock1107_s3" "test_data/stock_data_1107.xlsx" "-s 3 --floatformat %.02f --sci-float"
+    run_test "stock1107_s1" "test_data/stock_data_1107.xlsx" "-s 1 --floatformat %.02f --sci-float"
+    run_test "stock1107_s2" "test_data/stock_data_1107.xlsx" "-s 2 --floatformat %.02f --sci-float"
+    run_test "stock1107_s4" "test_data/stock_data_1107.xlsx" "-s 4 --floatformat %.02f --sci-float"
+fi
+
+if [ -f "test_data/stock_data_1121.xlsx" ]; then
+    run_test "stock1121" "test_data/stock_data_1121.xlsx" "--floatformat %.02f --sci-float"
+fi
+
+if [ -f "test_data/etfx_template.xlsx" ]; then
+    run_test "etfx_default" "test_data/etfx_template.xlsx" ""
+    run_test "etfx_float" "test_data/etfx_template.xlsx" "--floatformat %.02f"
+fi
+
+if [ -f "test_data/sector.xlsx" ]; then
+    run_test "sector_default" "test_data/sector.xlsx" ""
+    run_test "sector_float04f" "test_data/sector.xlsx" "--floatformat %.04f"
+fi
+
+if [ -f "test_data/financial_report.xlsx" ]; then
+    run_test "financial" "test_data/financial_report.xlsx" "--floatformat %.02f"
+fi
+
+if [ -f "test_data/portfolio_tracking.xlsx" ]; then
+    run_test "portfolio_s1" "test_data/portfolio_tracking.xlsx" "-s 1 --floatformat %.02f"
+    run_test "portfolio_s2" "test_data/portfolio_tracking.xlsx" "-s 2 --floatformat %.02f"
+    run_test "portfolio_holdings" "test_data/portfolio_tracking.xlsx" "-n Holdings --floatformat %.02f"
+fi
+
 echo
 echo "====================================="
 echo "Test Results"
