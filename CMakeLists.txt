@@ -38,7 +38,6 @@ set(SOURCES
     src/csv_writer.c
     src/format_handler.c
     src/utils.c
-    src/thread_pool.c
 )
 
 # Header files
