@@ -235,11 +235,93 @@ char *format_float(double value, const char *format, bool scifloat)
 
     if (format) {
         snprintf(buffer, sizeof(buffer), format, value);
-    } else if (scifloat && (fabs(value) >= 1e10 || (fabs(value) < 1e-4 && value != 0))) {
-        snprintf(buffer, sizeof(buffer), "%e", value);
+
+        /* Check if result is zero (positive or negative) */
+        double result_value = atof(buffer);
+        bool   is_zero      = fabs(result_value) < 1e-300;
+
+        if (!is_zero) {
+            /* Strip trailing zeros after decimal point (Python xlsx2csv behavior) */
+            char *p = strchr(buffer, '.');
+            if (p) {
+                char *end = buffer + strlen(buffer) - 1;
+                while (end > p && *end == '0') {
+                    *end = '\0';
+                    end--;
+                }
+                /* Remove trailing decimal point if no digits after it */
+                if (*end == '.') {
+                    *end = '\0';
+                }
+            }
+        }
+
+        /* Preserve negative zero: if result is "-0.00" or similar, keep as "-0" */
+        if (is_zero && (value < 0.0 || signbit(value))) {
+            /* Find where digits start after decimal point */
+            char *p = strchr(buffer, '.');
+            if (p) {
+                /* Keep format like "-0.00" but change to "-0" */
+                strcpy(buffer, "-0");
+            } else {
+                strcpy(buffer, "-0");
+            }
+        }
+    } else if (scifloat) {
+        /* Python xlsx2csv's --sci-float behavior:
+         * Use regular decimal format (not scientific notation)
+         * This matches Python's behavior where scifloat doesn't force scientific notation
+         */
+        snprintf(buffer, sizeof(buffer), "%f", value);
+
+        /* Check if result is zero */
+        double result_value = atof(buffer);
+        bool   is_zero      = fabs(result_value) < 1e-300;
+
+        if (!is_zero) {
+            /* Strip trailing zeros */
+            char *p = strchr(buffer, '.');
+            if (p) {
+                char *end = buffer + strlen(buffer) - 1;
+                while (end > p && *end == '0') {
+                    *end = '\0';
+                    end--;
+                }
+                if (*end == '.') {
+                    *end = '\0';
+                }
+            }
+        }
     } else if (fabs(value - round(value)) < 1e-9) {
         /* Integer value */
-        snprintf(buffer, sizeof(buffer), "%.0f", value);
+        /* Check for negative zero: value is close to zero but signbit is set */
+        if (fabs(value) < 1e-10) {
+            /* Check if it's negative zero by checking signbit */
+            if (value < 0.0 || (fabs(value) < 1e-300 && signbit(value))) {
+                /* Negative zero: use %f format to preserve sign, then strip trailing zeros */
+                snprintf(buffer, sizeof(buffer), "%f", value);
+                /* Strip trailing zeros */
+                char *p = strchr(buffer, '.');
+                if (p) {
+                    char *end = buffer + strlen(buffer) - 1;
+                    while (end > p && *end == '0') {
+                        *end = '\0';
+                        end--;
+                    }
+                    if (*end == '.') {
+                        *end = '\0';
+                    }
+                }
+                /* If result is "-0", keep it; if "0", check original sign */
+                if (strcmp(buffer, "0") == 0 && (value < 0.0 || signbit(value))) {
+                    snprintf(buffer, sizeof(buffer), "-0");
+                }
+            } else {
+                snprintf(buffer, sizeof(buffer), "0");
+            }
+        } else {
+            snprintf(buffer, sizeof(buffer), "%.0f", value);
+        }
     } else {
         /* Use %f format (default 6 decimal places), then aggressively strip trailing zeros
          * This matches Python's behavior: ("%f" % data).rstrip('0').rstrip('.')
@@ -313,17 +395,100 @@ char *format_cell_value(const char        *value,
                 return format_time(num_value, NULL);
             }
         } else if (ftype == FORMAT_FLOAT) {
-            return format_float(num_value, conv->options.floatformat, conv->options.scifloat);
+            /* Python xlsx2csv logic: floatformat only applies in specific cases:
+             * 1. If original value contains 'e' or 'E' (scientific notation) - always apply
+             * floatformat
+             * 2. If format string starts with '0.0' (like '0.00', '0.0000') - apply floatformat if
+             * specified
+             * 3. If format is 'general' - don't apply floatformat (unless scientific notation)
+             */
+            const char *format_str = NULL;
+            for (int i = 0; i < conv->styles.format_count; i++) {
+                if (conv->styles.formats[i].id == style_id) {
+                    format_str = conv->styles.formats[i].format_code;
+                    break;
+                }
+            }
+
+            bool format_starts_with_0_0 = format_str && strncmp(format_str, "0.0", 3) == 0;
+            bool has_scientific         = strchr(value, 'e') != NULL || strchr(value, 'E') != NULL;
+
+            /* Apply floatformat only if:
+             * - original value has scientific notation (always), OR
+             * - format starts with '0.0' AND floatformat is specified
+             * For 'general' format without scientific notation, use default formatting
+             */
+            /* Check if original value string contains negative zero */
+            double parsed_value = atof(value);
+            bool   is_negative_zero =
+                (strcmp(value, "-0") == 0) ||
+                (value[0] == '-' && fabs(parsed_value) < 1e-300 && signbit(parsed_value));
+            if (has_scientific && conv->options.floatformat) {
+                /* Scientific notation: always apply floatformat if specified */
+                char *result =
+                    format_float(num_value, conv->options.floatformat, conv->options.scifloat);
+                /* Preserve negative zero if original was negative zero */
+                if (is_negative_zero && strcmp(result, "0") == 0) {
+                    free(result);
+                    return str_duplicate("-0");
+                }
+                return result;
+            } else if (format_starts_with_0_0 && conv->options.floatformat) {
+                /* Format starts with '0.0': apply floatformat if specified */
+                char *result =
+                    format_float(num_value, conv->options.floatformat, conv->options.scifloat);
+                /* Preserve negative zero if original was negative zero */
+                if (is_negative_zero && strcmp(result, "0") == 0) {
+                    free(result);
+                    return str_duplicate("-0");
+                }
+                return result;
+            } else {
+                /* Default formatting (no floatformat) */
+                return format_float(num_value, NULL, conv->options.scifloat);
+            }
         }
     }
 
     /* Default numeric handling */
     if (type_attr && strcmp(type_attr, "n") == 0) {
         double num_value = atof(value);
-        char   buffer[256];
 
-        /* Check if original value contained 'e' or 'E' (scientific notation in source) */
-        if (strchr(value, 'e') || strchr(value, 'E')) {
+        /* Check if original value contains scientific notation */
+        bool has_scientific = strchr(value, 'e') != NULL || strchr(value, 'E') != NULL;
+
+        /* Check if value is integer (or very close to integer) */
+        bool is_integer = fabs(num_value - round(num_value)) < 1e-10;
+
+        /* Check if original value is negative zero */
+        bool is_negative_zero =
+            (strcmp(value, "-0") == 0) || (value[0] == '-' && fabs(num_value) < 1e-300);
+
+        /* Apply floatformat only if original value has scientific notation */
+        if (conv->options.floatformat && has_scientific) {
+            return format_float(num_value, conv->options.floatformat, conv->options.scifloat);
+        }
+
+        /* Apply scifloat formatting if enabled (but not for integers) */
+        if (conv->options.scifloat && !is_integer) {
+            return format_float(num_value, NULL, conv->options.scifloat);
+        }
+
+        /* Otherwise use default formatting */
+        char buffer[256];
+
+        if (is_integer) {
+            /* Integer: display as integer (no decimal point) */
+            if (is_negative_zero && conv->options.floatformat) {
+                /* When floatformat is specified, preserve negative zero */
+                snprintf(buffer, sizeof(buffer), "-0");
+            } else if (fabs(num_value) < 1e-10) {
+                /* Python xlsx2csv: "%i" % Decimal(repr(float("-0"))) -> "0" */
+                snprintf(buffer, sizeof(buffer), "0");
+            } else {
+                snprintf(buffer, sizeof(buffer), "%.0f", num_value);
+            }
+        } else if (strchr(value, 'e') || strchr(value, 'E')) {
             /* Original was in scientific notation, convert to decimal format with %f */
             snprintf(buffer, sizeof(buffer), "%f", num_value);
 
@@ -340,8 +505,23 @@ char *format_cell_value(const char        *value,
                 }
             }
         } else {
-            /* Use %g which automatically strips trailing zeros and handles large numbers */
-            snprintf(buffer, sizeof(buffer), "%.15g", num_value);
+            /* Use %f (6 decimal places by default), then strip trailing zeros
+             * This matches Python's behavior: ("%f" % data).rstrip('0').rstrip('.')
+             */
+            snprintf(buffer, sizeof(buffer), "%f", num_value);
+
+            /* Strip trailing zeros */
+            char *p = strchr(buffer, '.');
+            if (p) {
+                char *end = buffer + strlen(buffer) - 1;
+                while (end > p && *end == '0') {
+                    *end = '\0';
+                    end--;
+                }
+                if (*end == '.') {
+                    *end = '\0';
+                }
+            }
         }
 
         return str_duplicate(buffer);
