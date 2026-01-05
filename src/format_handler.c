@@ -87,6 +87,14 @@ static formatType get_format_type_from_string(const char *format_str)
         return FORMAT_DATE;
     }
 
+    /* Python behavior: Custom formats (not in FORMATS dict) require data to match numeric regex
+     * To indicate custom format, we set a flag - but still return FORMAT_FLOAT for processing
+     * The flag will be checked in format_cell_value to decide whether to check is_numeric
+     */
+    if (strstr(format_str, "_")) {
+        return FORMAT_CUSTOM_FLOAT; /* Custom float format - needs data validation */
+    }
+
     return FORMAT_FLOAT;
 }
 
@@ -469,13 +477,54 @@ char *format_cell_value(const char        *value,
         int        style_id = atoi(style_attr);
         formatType ftype    = get_format_type(style_id, &conv->styles);
 
-        /* Python behavior: if format type is date/time/float and value is not #N/A,
-         * try to convert to float. If conversion fails (e.g., #VALUE!), raise error.
+        /* Python behavior (line 823-856 in Python version):
+         * - If has s_attr (style): checks data with regex to set format_type (line 848-850)
+         * - If colType="n": sets format_type="float" regardless of data (line 853-854)
+         *
+         * Key insight: Python uses regex on self.data to decide format_type
+         * BUT: if colType="n", format_type="float" is set without checking data
          */
+
+        /* Special case: #N/A is explicitly excluded */
+        if (strcmp(value, "#N/A") == 0) {
+            return str_duplicate(value);
+        }
+
+        /* Determine if we should attempt conversion based on Python's logic
+         *
+         * Python line 839-840: if format_str in FORMATS: format_type = FORMATS[format_str]
+         *   This sets format_type WITHOUT checking data!
+         * Python line 841-850: elif (regex check on data): set format_type based on data
+         * Python line 853-854: elif colType=="n": format_type = "float"
+         * Python line 856: if format_type and ... and data != "#N/A": try: float(data) ...
+         *
+         * Key insight: For standard formats (in FORMATS dict), Python sets format_type
+         * regardless of data content, then tries to convert, which can fail with ValueError.
+         *
+         * Since we don't have the FORMATS dict in C, we'll assume that if we determined
+         * a numeric ftype from the style, it's like a standard format - always try to convert.
+         */
+        bool should_convert = false;
+
+        if (style_attr) {
+            /* Has style */
+            if (ftype == FORMAT_DATE || ftype == FORMAT_TIME || ftype == FORMAT_FLOAT ||
+                ftype == FORMAT_PERCENTAGE) {
+                /* Standard formats (in FORMATS dict) - always try to convert (Python line 839-840)
+                 */
+                should_convert = true;
+            } else if (ftype == FORMAT_CUSTOM_FLOAT) {
+                /* Custom formats (not in FORMATS) - only if data looks like number (Python line
+                 * 848-850) */
+                should_convert = is_numeric(value);
+            }
+        } else if (type_attr && strcmp(type_attr, "n") == 0) {
+            /* No style, but colType="n" (Python line 853-854) - always try to convert */
+            should_convert = true;
+        }
+
         double num_value;
-        if ((ftype == FORMAT_DATE || ftype == FORMAT_TIME || ftype == FORMAT_FLOAT ||
-             ftype == FORMAT_PERCENTAGE) &&
-            strcmp(value, "#N/A") != 0) {
+        if (should_convert) {
             /* Check if value is a valid number */
             char *endptr;
             num_value = strtod(value, &endptr);
@@ -488,11 +537,11 @@ char *format_cell_value(const char        *value,
                 conv->has_date_error = true;
                 return str_duplicate(value);
             }
-        } else if (strcmp(value, "#N/A") == 0) {
-            /* #N/A is explicitly excluded - return as-is */
-            return str_duplicate(value);
         } else {
-            num_value = atof(value);
+            /* should_convert = false means value doesn't look like a number
+             * (e.g., #VALUE! with custom format) - return as-is without conversion
+             */
+            return str_duplicate(value);
         }
 
         if (ftype == FORMAT_DATE) {
@@ -546,7 +595,7 @@ char *format_cell_value(const char        *value,
             } else {
                 return format_float(num_value, NULL, conv->options.scifloat, value);
             }
-        } else if (ftype == FORMAT_FLOAT) {
+        } else if (ftype == FORMAT_FLOAT || ftype == FORMAT_CUSTOM_FLOAT) {
             /* Get the format ID for this style */
             int fmt_id = -1;
             if (style_id >= 0 && style_id < conv->styles.cell_xfs_count) {

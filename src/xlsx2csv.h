@@ -21,6 +21,7 @@ typedef enum {
 typedef enum {
     FORMAT_STRING,
     FORMAT_FLOAT,
+    FORMAT_CUSTOM_FLOAT, /* Custom float format (e.g. "0_ ") - requires data validation */
     FORMAT_DATE,
     FORMAT_TIME,
     FORMAT_BOOLEAN,

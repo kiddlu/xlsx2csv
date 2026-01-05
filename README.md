@@ -230,15 +230,15 @@ python3 tests/generate_test_data.py
 
 ### Test Methodology
 
-**Important**: Tests compare output with the **actual Python xlsx2csv** installed on your system!
+**Important**: Tests compare output with the **Python xlsx2csv reference implementation** (`xlsx2csv_python.py`) included in the project!
 
 Each test:
-1. ✅ Runs system Python xlsx2csv
+1. ✅ Runs Python xlsx2csv reference (`xlsx2csv_python.py`)
 2. ✅ Runs C version xlsx2csv
 3. ✅ Compares outputs byte-by-byte (using `diff`)
 4. ✅ Reports any differences
 
-This ensures **real-time compatibility** with the Python version!
+The Python reference version is version-controlled in the project to ensure **consistent test environment** across all systems!
 
 ### Test Coverage
 
@@ -370,6 +370,7 @@ xlsx2csv/
 │   ├── expected/      # Empty (tests are dynamic)
 │   ├── test_runner.sh # Test automation
 │   └── generate_test_data.py # Test file generator
+├── xlsx2csv_python.py # Python reference implementation (for testing)
 ├── Makefile           # Build configuration
 └── README.md          # This file
 ```

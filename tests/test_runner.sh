@@ -13,7 +13,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-PYTHON_XLSX2CSV="xlsx2csv_python"
+PYTHON_XLSX2CSV="../xlsx2csv_python.py"
 C_XLSX2CSV="../xlsx2csv"
 
 # Also check build directory
@@ -27,9 +27,9 @@ if [ ! -f "$C_XLSX2CSV" ]; then
     exit 1
 fi
 
-if ! command -v "$PYTHON_XLSX2CSV" &> /dev/null; then
-    echo -e "${RED}Error: Python xlsx2csv not found (tried: $PYTHON_XLSX2CSV)${NC}"
-    echo "Please install Python xlsx2csv"
+if [ ! -f "$PYTHON_XLSX2CSV" ]; then
+    echo -e "${RED}Error: Python xlsx2csv not found at $PYTHON_XLSX2CSV${NC}"
+    echo "Please ensure xlsx2csv_python.py is in the project root directory"
     exit 1
 fi
 

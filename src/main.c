@@ -269,6 +269,8 @@ int main(int argc, char **argv)
 
     /* Check for date format errors (matches Python behavior) */
     if (conv->has_date_error) {
+        /* Flush stdout before writing to stderr to maintain correct output order */
+        fflush(stdout);
         fprintf(stderr, "Error: potential invalid date format.\n\n");
         result = -1;
     }
