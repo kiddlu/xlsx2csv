@@ -17,13 +17,6 @@ pkg_check_modules(LIBXML2 REQUIRED libxml-2.0)
 # Find libzip
 pkg_check_modules(LIBZIP REQUIRED libzip)
 
-# Find libcsv (may not have pkg-config, use direct link)
-find_library(CSV_LIB csv)
-
-if(NOT CSV_LIB)
-    message(FATAL_ERROR "libcsv not found")
-endif()
-
 # Source files
 set(SOURCES
     src/main.c
@@ -54,7 +47,6 @@ add_executable(xlsx2csv ${SOURCES} ${HEADERS})
 target_link_libraries(xlsx2csv
     ${LIBXML2_LIBRARIES}
     ${LIBZIP_LIBRARIES}
-    ${CSV_LIB}
     m
 )
 

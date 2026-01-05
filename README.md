@@ -59,7 +59,6 @@ This is a high-performance C version of the popular Python tool xlsx2csv, which 
 
 - **libzip** - ZIP file handling (XLSX files are ZIP archives)
 - **libxml2** - XML parsing (XLSX internal format)
-- **libcsv** - CSV field escaping
 
 ### Installing Dependencies (Debian/Ubuntu)
 
@@ -70,8 +69,7 @@ sudo apt-get install -y \
     clang-format \
     pkg-config \
     libzip-dev \
-    libxml2-dev \
-    libcsv-dev
+    libxml2-dev
 ```
 
 ## 🔨 Building

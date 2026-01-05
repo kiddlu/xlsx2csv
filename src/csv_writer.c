@@ -2,9 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Third-party library headers */
-#include <csv.h>
-
 /* Project headers */
 #include "csv_writer.h"
 #include "utils.h"
@@ -160,7 +157,7 @@ int csv_write_field(csvWriter *writer, const char *field)
 
     /* Write field content, escaping quotes if needed */
     if (writer->options->quoting != QUOTE_NONE) {
-        /* Use libcsv to write the field content (handles quote escaping) */
+        /* Double quotes for CSV escaping */
         for (const char *p = field; *p; p++) {
             if (*p == '"') {
                 fputc('"', writer->fp); /* Double the quote */
