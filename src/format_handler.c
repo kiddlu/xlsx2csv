@@ -65,9 +65,25 @@ static formatType get_format_type_from_string(const char *format_str)
         }
     }
 
-    /* Check for date pattern */
-    if (strstr(format_str, "y") || strstr(format_str, "m") || strstr(format_str, "d") ||
-        strstr(format_str, "h") || strstr(format_str, "s")) {
+    /* Check for date/time pattern (case-insensitive)
+     * Time-only formats: contain h/H or s/S but NOT y/Y or d/D
+     * Date formats: contain y/Y or d/D
+     * DateTime formats: contain both date and time components
+     */
+    bool has_year  = strstr(format_str, "y") || strstr(format_str, "Y");
+    bool has_month = strstr(format_str, "m") || strstr(format_str, "M");
+    bool has_day   = strstr(format_str, "d") || strstr(format_str, "D");
+    bool has_hour  = strstr(format_str, "h") || strstr(format_str, "H");
+    bool has_sec   = strstr(format_str, "s") || strstr(format_str, "S");
+
+    bool has_date_component = has_year || has_day;
+    bool has_time_component = has_hour || has_sec;
+
+    if (has_time_component && !has_date_component) {
+        /* Time-only format: HH:MM:SS, h:mm, etc. */
+        return FORMAT_TIME;
+    } else if (has_date_component || has_month) {
+        /* Date or DateTime format */
         return FORMAT_DATE;
     }
 
@@ -146,62 +162,109 @@ char *format_date(double value, const char *format, bool date1904)
      * For dates after 1900-02-28, we need to subtract 1 day to compensate
      */
 
-    /* Convert Excel serial date to year, month, day */
-    int days;
-    if (date1904) {
-        days = (int)value;
-        /* 1904-01-01 is day 0 */
-        days += 24107; /* Days from 1900-01-01 to 1904-01-01 */
-    } else {
-        days = (int)value;
-        /* Excel counts from 1900-01-01 as day 1, but has a leap year bug */
-        /* For dates > 60 (after 1900-02-28), subtract 1 to compensate */
-        if (days > 60) {
-            days -= 1;
-        }
+    /* Check if format contains both date and time components
+     * In Excel formats:
+     * - H/h = hours (time component)
+     * - S/s = seconds (time component)
+     * - m/M near h/H = minutes (time component)
+     * - m/M alone = months (date component)
+     */
+    bool has_time_component = false;
+    if (format) {
+        /* Check for hours or seconds (clear time indicators) */
+        has_time_component = strstr(format, "H") || strstr(format, "h") || strstr(format, "S") ||
+                             strstr(format, "s");
+        /* But only if it also has date components */
+        bool has_date_component = strstr(format, "Y") || strstr(format, "y") ||
+                                  strstr(format, "D") || strstr(format, "d");
+        has_time_component = has_time_component && has_date_component;
     }
 
-    /* Calculate date from days since 1900-01-01 */
-    /* 1900-01-01 corresponds to Unix timestamp calculation base */
-    int year  = 1900;
-    int month = 1;
-    int day   = days;
+    /* Convert Excel serial date to year, month, day
+     * Excel uses 1900-01-01 as day 1, with a leap year bug
+     * Python xlsx2csv uses 1899-12-30 as day 0 (day 1 = 1899-12-31)
+     * We'll use Python's epoch (1899-12-30) to match its behavior
+     */
+    int total_days;
+    if (date1904) {
+        /* 1904-01-01 is day 0 in 1904 system
+         * Convert to days since 1899-12-30
+         */
+        total_days = (int)value + 1462; /* Days from 1899-12-30 to 1904-01-01 */
+    } else {
+        /* Excel day 1 = 1900-01-01, but we use 1899-12-30 as epoch
+         * So Excel day 1 = our day 2
+         * But Python xlsx2csv outputs day 1 as 1899-12-31, so day 1 = epoch + 1
+         * This suggests Python uses: Excel day N = epoch + N
+         */
+        total_days = (int)value;
+    }
+
+    /* Use standard C library for date calculation */
+    /* 1899-12-30 = Unix epoch - 25569 days */
+    /* But it's easier to calculate manually */
+
+    /* Start from 1899-12-30 and add total_days */
+    int year  = 1899;
+    int month = 12;
+    int day   = 30;
+
+    /* Add days */
+    day += total_days;
 
     /* Days in each month */
     int days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
-    while (day > 365) {
-        int days_in_year = 365;
-        if ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)) {
-            days_in_year = 366;
-        }
-        if (day > days_in_year) {
-            day -= days_in_year;
-            year++;
+    /* Advance through years and months */
+    while (true) {
+        /* Check for leap year */
+        bool is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+        if (is_leap) {
+            days_in_month[1] = 29;
         } else {
+            days_in_month[1] = 28;
+        }
+
+        int days_in_current_month = days_in_month[month - 1];
+
+        if (day <= days_in_current_month) {
             break;
         }
-    }
 
-    /* Check for leap year */
-    bool is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
-    if (is_leap) {
-        days_in_month[1] = 29;
-    }
+        day -= days_in_current_month;
+        month++;
 
-    /* Find month and day */
-    for (int m = 0; m < 12; m++) {
-        if (day <= days_in_month[m]) {
-            month = m + 1;
-            break;
+        if (month > 12) {
+            month = 1;
+            year++;
         }
-        day -= days_in_month[m];
     }
 
     char buffer[256];
-    /* Use default format: YYYY-MM-DD (format parameter not used in current implementation) */
-    (void)format; /* Suppress unused parameter warning */
-    snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d", year, month, day);
+
+    if (has_time_component) {
+        /* Format as DateTime: YYYY-MM-DD HH:MM:SS */
+        /* Extract time from fractional part */
+        double time_fraction = value - (int)value;
+        int    total_seconds = (int)(time_fraction * 86400);
+        int    hours         = total_seconds / 3600;
+        int    minutes       = (total_seconds % 3600) / 60;
+        int    seconds       = total_seconds % 60;
+
+        snprintf(buffer,
+                 sizeof(buffer),
+                 "%04d-%02d-%02d %02d:%02d:%02d",
+                 year,
+                 month,
+                 day,
+                 hours,
+                 minutes,
+                 seconds);
+    } else {
+        /* Use default date format: YYYY-MM-DD */
+        (void)format; /* Suppress unused parameter warning for non-datetime case */
+        snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d", year, month, day);
+    }
 
     return str_duplicate(buffer);
 }
@@ -257,9 +320,21 @@ char *format_float(double value, const char *format, bool scifloat)
             }
         }
 
-        /* Preserve negative zero: if result is "-0.00" or similar, keep as "-0" */
+        /* Preserve negative zero with proper formatting */
         if (is_zero && (value < 0.0 || signbit(value))) {
-            strcpy(buffer, "-0");
+            /* For negative zero, keep the format's decimal places
+             * e.g., "%.02f" -> "-0.00", not "-0"
+             */
+            if (strchr(buffer, '.')) {
+                /* Already formatted with decimals, just ensure negative sign */
+                if (buffer[0] != '-') {
+                    memmove(buffer + 1, buffer, strlen(buffer) + 1);
+                    buffer[0] = '-';
+                }
+            } else {
+                /* No decimals in format, use "-0" */
+                strcpy(buffer, "-0");
+            }
         }
     } else if (scifloat) {
         /* Python xlsx2csv's --sci-float behavior:
@@ -339,6 +414,10 @@ static char *apply_excel_format(double value, const char *format_code)
         return NULL;
     }
 
+    /* Python xlsx2csv only applies simple formats without # or ,
+     * Only handle exact matches: "0.00", "0", "0.00E+00"
+     */
+
     /* Handle format "0.00" - round to 2 decimal places */
     if (strcmp(format_code, "0.00") == 0) {
         char buffer[256];
@@ -353,14 +432,18 @@ static char *apply_excel_format(double value, const char *format_code)
         return str_duplicate(buffer);
     }
 
-    /* Handle scientific notation format "0.00E+00" */
+    /* Handle scientific notation format "0.00E+00"
+     * Python outputs with 6 decimal places (%.6f)
+     */
     if (strcmp(format_code, "0.00E+00") == 0 || strcmp(format_code, "0.00e+00") == 0) {
         char buffer[256];
-        snprintf(buffer, sizeof(buffer), "%.8f", value); /* Python uses more precision */
+        snprintf(buffer, sizeof(buffer), "%.6f", value);
         return str_duplicate(buffer);
     }
 
-    /* Other formats not supported - return NULL to use default formatting */
+    /* All other formats (including #,##0, #,##0.00, etc.) are not applied
+     * Return NULL to use default formatting
+     */
     return NULL;
 }
 
@@ -401,10 +484,24 @@ char *format_cell_value(const char        *value,
         double     num_value = atof(value);
 
         if (ftype == FORMAT_DATE) {
+            /* Get the format string for datetime detection */
+            int         fmt_id     = -1;
+            const char *format_str = NULL;
+            if (style_id >= 0 && style_id < conv->styles.cell_xfs_count) {
+                fmt_id = conv->styles.cell_xfs[style_id];
+            }
+            for (int i = 0; i < conv->styles.format_count; i++) {
+                if (conv->styles.formats[i].id == fmt_id) {
+                    format_str = conv->styles.formats[i].format_code;
+                    break;
+                }
+            }
+
             if (conv->options.dateformat) {
                 return format_date(num_value, conv->options.dateformat, conv->workbook.date1904);
             } else {
-                return format_date(num_value, NULL, conv->workbook.date1904);
+                /* Pass Excel format string to detect DateTime vs Date-only */
+                return format_date(num_value, format_str, conv->workbook.date1904);
             }
         } else if (ftype == FORMAT_TIME) {
             if (conv->options.timeformat) {
@@ -414,22 +511,78 @@ char *format_cell_value(const char        *value,
             }
         } else if (ftype == FORMAT_PERCENTAGE) {
             /* Percentage values are stored as decimals in Excel (0.5 = 50%)
-             * Python xlsx2csv does NOT apply floatformat to percentages
-             * Output the decimal value as-is
+             * Python xlsx2csv applies floatformat ONLY if the percentage format starts with "0.0"
+             * e.g., "0.0%" applies floatformat, but "0%" does not
              */
-            return format_float(num_value, NULL, conv->options.scifloat);
-        } else if (ftype == FORMAT_FLOAT) {
             /* Get the format string for this style */
+            int         fmt_id     = -1;
             const char *format_str = NULL;
+            if (style_id >= 0 && style_id < conv->styles.cell_xfs_count) {
+                fmt_id = conv->styles.cell_xfs[style_id];
+            }
             for (int i = 0; i < conv->styles.format_count; i++) {
-                if (conv->styles.formats[i].id == style_id) {
+                if (conv->styles.formats[i].id == fmt_id) {
                     format_str = conv->styles.formats[i].format_code;
                     break;
                 }
             }
 
-            /* First priority: Try to apply Excel number format (if no floatformat option) */
-            if (!conv->options.floatformat && format_str) {
+            bool format_starts_with_0_0 = format_str && strncmp(format_str, "0.0", 3) == 0;
+            if (format_starts_with_0_0 && conv->options.floatformat) {
+                return format_float(num_value, conv->options.floatformat, conv->options.scifloat);
+            } else {
+                return format_float(num_value, NULL, conv->options.scifloat);
+            }
+        } else if (ftype == FORMAT_FLOAT) {
+            /* Get the format ID for this style */
+            int fmt_id = -1;
+            if (style_id >= 0 && style_id < conv->styles.cell_xfs_count) {
+                fmt_id = conv->styles.cell_xfs[style_id];
+            }
+
+            /* Get the format string for this format ID */
+            const char *format_str = NULL;
+            for (int i = 0; i < conv->styles.format_count; i++) {
+                if (conv->styles.formats[i].id == fmt_id) {
+                    format_str = conv->styles.formats[i].format_code;
+                    break;
+                }
+            }
+
+            /* If no custom format found, check standard formats */
+            if (!format_str && fmt_id >= 0) {
+                static const struct {
+                    int         id;
+                    const char *format;
+                } standard_formats[] = {
+                    {0,  "general"                 },
+                    {1,  "0"                       },
+                    {2,  "0.00"                    },
+                    {3,  "#,##0"                   },
+                    {4,  "#,##0.00"                },
+                    {9,  "0%"                      },
+                    {10, "0.00%"                   },
+                    {11, "0.00e+00"                },
+                    {37, "#,##0 ;(#,##0)"          },
+                    {38, "#,##0 ;[red](#,##0)"     },
+                    {39, "#,##0.00;(#,##0.00)"     },
+                    {40, "#,##0.00;[red](#,##0.00)"},
+                    {48, "##0.0e+0"                }
+                };
+                for (size_t i = 0; i < sizeof(standard_formats) / sizeof(standard_formats[0]);
+                     i++) {
+                    if (standard_formats[i].id == fmt_id) {
+                        format_str = standard_formats[i].format;
+                        break;
+                    }
+                }
+            }
+
+            /* First priority: Try to apply Excel number format (if no floatformat option)
+             * Python only applies formats starting with "0.0" (e.g., "0.00", "0.00E+00")
+             * Formats with "#" or "," are NOT applied
+             */
+            if (!conv->options.floatformat && format_str && strncmp(format_str, "0.0", 3) == 0) {
                 char *excel_formatted = apply_excel_format(num_value, format_str);
                 if (excel_formatted) {
                     return excel_formatted;
@@ -478,8 +631,10 @@ char *format_cell_value(const char        *value,
         /* Check if original value contains scientific notation */
         bool has_scientific = strchr(value, 'e') != NULL || strchr(value, 'E') != NULL;
 
-        /* Check if value is integer (or very close to integer) */
-        bool is_integer = fabs(num_value - round(num_value)) < 1e-10;
+        /* Check if value is integer (or very close to integer)
+         * BUT: if original value was in scientific notation, treat as float
+         */
+        bool is_integer = !has_scientific && (fabs(num_value - round(num_value)) < 1e-10);
 
         /* Check if original value is negative zero */
         bool is_negative_zero =
@@ -510,21 +665,10 @@ char *format_cell_value(const char        *value,
                 snprintf(buffer, sizeof(buffer), "%.0f", num_value);
             }
         } else if (strchr(value, 'e') || strchr(value, 'E')) {
-            /* Original was in scientific notation, convert to decimal format with %f */
+            /* Original was in scientific notation, convert to decimal format with %f
+             * Keep the default 6 decimal places to match Python's behavior
+             */
             snprintf(buffer, sizeof(buffer), "%f", num_value);
-
-            /* Strip trailing zeros */
-            char *p = strchr(buffer, '.');
-            if (p) {
-                char *end = buffer + strlen(buffer) - 1;
-                while (end > p && *end == '0') {
-                    *end = '\0';
-                    end--;
-                }
-                if (*end == '.') {
-                    *end = '\0';
-                }
-            }
         } else {
             /* Use %f (6 decimal places by default), then strip trailing zeros
              * This matches Python's behavior: ("%f" % data).rstrip('0').rstrip('.')

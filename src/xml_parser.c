@@ -329,13 +329,33 @@ int parse_worksheet(xlsx2csvConverter *conv, int sheet_index, FILE *outfile)
         return -1;
     }
 
-    /* Find sheetData node */
-    xmlNodePtr sheetData = NULL;
+    /* Find sheetData node and parse dimension */
+    xmlNodePtr sheetData      = NULL;
+    int        global_max_col = -1;
+
     for (xmlNodePtr node = root->children; node; node = node->next) {
-        if (node->type == XML_ELEMENT_NODE &&
-            xmlStrcmp(node->name, (const xmlChar *)"sheetData") == 0) {
-            sheetData = node;
-            break;
+        if (node->type == XML_ELEMENT_NODE) {
+            if (xmlStrcmp(node->name, (const xmlChar *)"sheetData") == 0) {
+                sheetData = node;
+            } else if (xmlStrcmp(node->name, (const xmlChar *)"dimension") == 0) {
+                /* Parse dimension to get max column */
+                xmlChar *ref = xmlGetProp(node, (const xmlChar *)"ref");
+                if (ref) {
+                    /* ref format: "A1:D6" or just "A1" */
+                    char *colon = strchr((char *)ref, ':');
+                    if (colon) {
+                        /* Extract column from end reference (e.g., "D6" -> "D") */
+                        char col_name[10] = {0};
+                        int  i            = 0;
+                        for (char *p = colon + 1; *p && isalpha(*p); p++) {
+                            col_name[i++] = *p;
+                        }
+                        col_name[i]    = '\0';
+                        global_max_col = column_name_to_index(col_name);
+                    }
+                    xmlFree(ref);
+                }
+            }
         }
     }
 
@@ -496,18 +516,28 @@ int parse_worksheet(xlsx2csvConverter *conv, int sheet_index, FILE *outfile)
         /* Write row if not empty or if we're not skipping empty lines */
         if (!is_empty || !conv->options.skip_empty_lines) {
             /* Adjust max_col if skip_trailing_columns is enabled */
+            int output_max_col = max_col;
             if (conv->options.skip_trailing_columns) {
-                while (max_col >= 0 && (!cells[max_col] || cells[max_col][0] == '\0')) {
-                    max_col--;
+                while (output_max_col >= 0 &&
+                       (!cells[output_max_col] || cells[output_max_col][0] == '\0')) {
+                    output_max_col--;
+                }
+            } else {
+                /* Use global max column if available */
+                if (global_max_col > output_max_col) {
+                    output_max_col = global_max_col;
                 }
             }
 
             /* Reset writer field index for new row */
             csv_writer_reset_row(writer);
 
-            /* Write cells - ensure we only write up to max_col + 1 cells */
-            if (max_col >= 0) {
-                for (int i = 0; i <= max_col; i++) {
+            /* Set field count for this row (needed for proper empty field quoting) */
+            csv_writer_set_field_count(writer, output_max_col + 1);
+
+            /* Write cells - ensure we only write up to output_max_col + 1 cells */
+            if (output_max_col >= 0) {
+                for (int i = 0; i <= output_max_col; i++) {
                     csv_write_field(writer, cells[i] ? cells[i] : "");
                 }
             } else {

@@ -134,6 +134,7 @@ void                     csv_writer_free(csvWriter *writer);
 int                      csv_write_row(csvWriter *writer, char **fields, int field_count);
 int                      csv_write_field(csvWriter *writer, const char *field);
 void                     csv_writer_reset_row(csvWriter *writer);
+void                     csv_writer_set_field_count(csvWriter *writer, int count);
 
 /* utils.c */
 char *str_duplicate(const char *str);

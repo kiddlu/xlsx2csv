@@ -8,6 +8,7 @@ struct csvWriter {
     FILE        *fp;
     xlsxOptions *options;
     int          field_index;
+    int          field_count; /* Total fields in current row */
 };
 
 /* Create CSV writer */
@@ -25,6 +26,7 @@ csvWriter *csv_writer_create(FILE *fp, xlsxOptions *options)
     writer->fp          = fp;
     writer->options     = options;
     writer->field_index = 0;
+    writer->field_count = 0;
 
     return writer;
 }
@@ -38,7 +40,7 @@ void csv_writer_free(csvWriter *writer)
 }
 
 /* Check if field needs quoting based on quoting mode */
-static bool needs_quoting(const char *field, xlsxOptions *options)
+static bool needs_quoting(const char *field, xlsxOptions *options, int field_count, int field_index)
 {
     if (!field) {
         return false;
@@ -55,9 +57,9 @@ static bool needs_quoting(const char *field, xlsxOptions *options)
             return true;
 
         case QUOTE_MINIMAL:
-            /* Empty strings must be quoted */
+            /* Empty strings: only quote if it's the ONLY field in the row */
             if (field[0] == '\0') {
-                return true;
+                return (field_count == 1 && field_index == 0);
             }
             /* Quote if field contains delimiter, quote, or line breaks */
             if (strchr(field, options->delimiter) != NULL) {
@@ -98,7 +100,7 @@ int csv_write_field(csvWriter *writer, const char *field)
 
     /* Check if empty field needs quoting */
     if (field[0] == '\0') {
-        if (needs_quoting(field, writer->options)) {
+        if (needs_quoting(field, writer->options, writer->field_count, writer->field_index)) {
             fputs("\"\"", writer->fp);
         }
         writer->field_index++;
@@ -144,7 +146,7 @@ int csv_write_field(csvWriter *writer, const char *field)
         }
     }
 
-    bool quote = needs_quoting(field, writer->options);
+    bool quote = needs_quoting(field, writer->options, writer->field_count, writer->field_index);
 
     if (quote) {
         fputc('"', writer->fp);
@@ -185,8 +187,9 @@ int csv_write_row(csvWriter *writer, char **fields, int field_count)
         return -1;
     }
 
-    /* Reset field index */
+    /* Reset field index and set field count */
     writer->field_index = 0;
+    writer->field_count = field_count;
 
     /* Write all fields */
     for (int i = 0; i < field_count; i++) {
@@ -206,5 +209,13 @@ void csv_writer_reset_row(csvWriter *writer)
 {
     if (writer) {
         writer->field_index = 0;
+    }
+}
+
+/* Set field count for current row */
+void csv_writer_set_field_count(csvWriter *writer, int count)
+{
+    if (writer) {
+        writer->field_count = count;
     }
 }
