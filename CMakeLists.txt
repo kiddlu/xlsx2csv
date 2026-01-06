@@ -62,6 +62,7 @@ add_executable(xlsx2csv ${SOURCES})
 # -Wlogical-op: Warn about suspicious uses of logical operators - code quality
 # === Style: Strict compliance ===
 # -Wpedantic: Issue warnings needed for strict ISO C compliance - style enforcement
+# Note: -Wfloat-equal is excluded as it conflicts with negative zero handling (signbit checks)
 target_compile_options(xlsx2csv PRIVATE
 	-Wall
 	-Wextra
@@ -84,5 +85,6 @@ target_compile_options(xlsx2csv PRIVATE
 	-Wlogical-op
 	-Wpedantic
 )
+
 target_link_libraries(xlsx2csv -lexpat -lzip -lm)
 
