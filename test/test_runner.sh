@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Project root is parent of tests directory
+# Project root is parent of test directory
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Locate Python script and C executable
