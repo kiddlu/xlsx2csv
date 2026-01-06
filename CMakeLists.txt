@@ -5,7 +5,7 @@ project(xlsx2csv C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-add_definitions(
+add_definitions (
 	-O3
 )
 
@@ -13,15 +13,6 @@ add_definitions(
 #add_link_options(-g)
 #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
 #set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
-
-# Find required packages
-find_package(PkgConfig REQUIRED)
-
-# Find expat (XML parsing)
-pkg_check_modules(EXPAT REQUIRED expat)
-
-# Find libzip
-pkg_check_modules(LIBZIP REQUIRED libzip)
 
 set(SOURCES
 ${PROJECT_SOURCE_DIR}/src/main.c
@@ -33,10 +24,13 @@ ${PROJECT_SOURCE_DIR}/src/format_handler.c
 ${PROJECT_SOURCE_DIR}/src/utils.c
 )
 
-include_directories(${PROJECT_SOURCE_DIR}/src)
+#static link
+#set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
+
+include_directories (${PROJECT_SOURCE_DIR}/src/)
 
 add_executable(xlsx2csv ${SOURCES})
-# Compiler warning options (strict mode, ordered by importance)
+# Compiler warning options
 # === Critical: Security and correctness ===
 # -Wall: Enable common warnings
 # -Wextra: Enable extra warnings
@@ -57,12 +51,12 @@ add_executable(xlsx2csv ${SOURCES})
 # -Wimplicit-fallthrough=5: Warn when a switch case falls through (level 5) - prevents accidental fallthrough
 # === Moderate: Code quality ===
 # -Wshadow: Warn when a variable shadows another - prevents confusion
+# Note: -Wfloat-equal is excluded as it conflicts with negative zero handling (signbit checks)
 # -Wduplicated-cond: Warn about duplicated conditions in if-else-if chains - code quality
 # -Wduplicated-branches: Warn about duplicated branches in if-else statements - code quality
 # -Wlogical-op: Warn about suspicious uses of logical operators - code quality
 # === Style: Strict compliance ===
 # -Wpedantic: Issue warnings needed for strict ISO C compliance - style enforcement
-# Note: -Wfloat-equal is excluded as it conflicts with negative zero handling (signbit checks)
 target_compile_options(xlsx2csv PRIVATE
 	-Wall
 	-Wextra
@@ -87,4 +81,3 @@ target_compile_options(xlsx2csv PRIVATE
 )
 
 target_link_libraries(xlsx2csv -lexpat -lzip -lm)
-
