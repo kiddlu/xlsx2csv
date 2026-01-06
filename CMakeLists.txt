@@ -1,12 +1,18 @@
 cmake_minimum_required(VERSION 3.10)
+
 project(xlsx2csv C)
 
-# Set C standard
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-# Compiler flags
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2")
+add_definitions(
+	-O3
+)
+
+#add_compile_options(-g -O0)
+#add_link_options(-g)
+#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
+#set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
 
 # Find required packages
 find_package(PkgConfig REQUIRED)
@@ -17,39 +23,19 @@ pkg_check_modules(EXPAT REQUIRED expat)
 # Find libzip
 pkg_check_modules(LIBZIP REQUIRED libzip)
 
-# Source files
 set(SOURCES
-    src/main.c
-    src/xlsx2csv.c
-    src/zip_reader.c
-    src/xml_parser.c
-    src/csv_writer.c
-    src/format_handler.c
-    src/utils.c
+${PROJECT_SOURCE_DIR}/src/main.c
+${PROJECT_SOURCE_DIR}/src/xlsx2csv.c
+${PROJECT_SOURCE_DIR}/src/zip_reader.c
+${PROJECT_SOURCE_DIR}/src/xml_parser.c
+${PROJECT_SOURCE_DIR}/src/csv_writer.c
+${PROJECT_SOURCE_DIR}/src/format_handler.c
+${PROJECT_SOURCE_DIR}/src/utils.c
 )
 
-# Header files
-set(HEADERS
-    src/xlsx2csv.h
-)
+include_directories(${PROJECT_SOURCE_DIR}/src)
 
-# Include directories
-include_directories(
-    ${EXPAT_INCLUDE_DIRS}
-    ${LIBZIP_INCLUDE_DIRS}
-    src
-)
-
-# Create executable
-add_executable(xlsx2csv ${SOURCES} ${HEADERS})
-
-# Link libraries
-target_link_libraries(xlsx2csv
-    ${EXPAT_LIBRARIES}
-    ${LIBZIP_LIBRARIES}
-    m
-)
-
+add_executable(xlsx2csv ${SOURCES})
 # Compiler warning options (strict mode, ordered by importance)
 # === Critical: Security and correctness ===
 # -Wall: Enable common warnings
@@ -76,29 +62,27 @@ target_link_libraries(xlsx2csv
 # -Wlogical-op: Warn about suspicious uses of logical operators - code quality
 # === Style: Strict compliance ===
 # -Wpedantic: Issue warnings needed for strict ISO C compliance - style enforcement
-# Note: -Wfloat-equal is excluded as it conflicts with negative zero handling (signbit checks)
 target_compile_options(xlsx2csv PRIVATE
-    ${EXPAT_CFLAGS_OTHER}
-    ${LIBZIP_CFLAGS_OTHER}
-    -Wall
-    -Wextra
-    -Werror
-    -Wformat=2
-    -Warray-bounds=2
-    -Wstringop-overflow=4
-    -Wstringop-truncation
-    -Wnull-dereference
-    -Wsign-conversion
-    -Wundef
-    -Wstrict-prototypes
-    -Wmissing-prototypes
-    -Wcast-qual
-    -Wswitch-default
-    -Wimplicit-fallthrough=5
-    -Wshadow
-    -Wduplicated-cond
-    -Wduplicated-branches
-    -Wlogical-op
-    -Wpedantic
+	-Wall
+	-Wextra
+	-Werror
+	-Wformat=2
+	-Warray-bounds=2
+	-Wstringop-overflow=4
+	-Wstringop-truncation
+	-Wnull-dereference
+	-Wsign-conversion
+	-Wundef
+	-Wstrict-prototypes
+	-Wmissing-prototypes
+	-Wcast-qual
+	-Wswitch-default
+	-Wimplicit-fallthrough=5
+	-Wshadow
+	-Wduplicated-cond
+	-Wduplicated-branches
+	-Wlogical-op
+	-Wpedantic
 )
+target_link_libraries(xlsx2csv -lexpat -lzip -lm)
 
