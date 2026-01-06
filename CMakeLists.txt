@@ -6,7 +6,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # Compiler flags
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -O2")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2")
 
 # Find required packages
 find_package(PkgConfig REQUIRED)

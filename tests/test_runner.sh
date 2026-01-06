@@ -13,13 +13,14 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-PYTHON_XLSX2CSV="../xlsx2csv_python.py"
-C_XLSX2CSV="../xlsx2csv"
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Project root is parent of tests directory
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Also check build directory
-if [ ! -f "$C_XLSX2CSV" ] && [ -f "../build/xlsx2csv" ]; then
-    C_XLSX2CSV="../build/xlsx2csv"
-fi
+# Locate Python script and C executable
+PYTHON_XLSX2CSV="$PROJECT_ROOT/python/xlsx2csv_python.py"
+C_XLSX2CSV="$PROJECT_ROOT/build/xlsx2csv"
 
 if [ ! -f "$C_XLSX2CSV" ]; then
     echo -e "${RED}Error: C xlsx2csv not found at $C_XLSX2CSV${NC}"
@@ -29,7 +30,7 @@ fi
 
 if [ ! -f "$PYTHON_XLSX2CSV" ]; then
     echo -e "${RED}Error: Python xlsx2csv not found at $PYTHON_XLSX2CSV${NC}"
-    echo "Please ensure xlsx2csv_python.py is in the project root directory"
+    echo "Please ensure xlsx2csv_python.py is in the python/ directory"
     exit 1
 fi
 
