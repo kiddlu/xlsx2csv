@@ -48,7 +48,6 @@ target_link_libraries(xlsx2csv
     ${EXPAT_LIBRARIES}
     ${LIBZIP_LIBRARIES}
     m
-    pthread
 )
 
 # Compiler warning options (strict mode, ordered by importance)
