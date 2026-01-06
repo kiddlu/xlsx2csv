@@ -102,8 +102,3 @@ target_compile_options(xlsx2csv PRIVATE
     -Wpedantic
 )
 
-# Install target
-install(TARGETS xlsx2csv
-    RUNTIME DESTINATION bin
-)
-
