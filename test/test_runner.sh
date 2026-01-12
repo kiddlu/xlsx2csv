@@ -1,7 +1,7 @@
 #!/bin/bash
 # Test runner for xlsx2csv C version
 # Compares output with Python version
-# 
+#
 # IMPORTANT: This script ALWAYS runs the Python version first to generate
 # the expected output, ensuring we test against the actual Python behavior
 
@@ -47,29 +47,30 @@ TESTS_PASSED=0
 TESTS_FAILED=0
 
 # Function to run a test
-run_test() {
+run_test()
+{
     local test_name="$1"
     local xlsx_file="$2"
     local options="$3"
-    
+
     echo -n "Testing $test_name... "
-    
+
     # ALWAYS run Python version first to generate expected output
-    $PYTHON_XLSX2CSV $options "$xlsx_file" "/tmp/expected_${test_name}.csv" 2>/dev/null || {
+    $PYTHON_XLSX2CSV $options "$xlsx_file" "/tmp/expected_${test_name}.csv" 2> /dev/null || {
         echo -e "${YELLOW}SKIP${NC} (Python version failed)"
         return
     }
-    
+
     # Run C version
-    $C_XLSX2CSV $options "$xlsx_file" "actual/${test_name}.csv" 2>/dev/null || {
+    $C_XLSX2CSV $options "$xlsx_file" "actual/${test_name}.csv" 2> /dev/null || {
         echo -e "${RED}FAIL${NC} (C version crashed)"
         TESTS_FAILED=$((TESTS_FAILED + 1))
         rm -f "/tmp/expected_${test_name}.csv"
         return
     }
-    
+
     # Compare outputs
-    if diff -q "/tmp/expected_${test_name}.csv" "actual/${test_name}.csv" >/dev/null 2>&1; then
+    if diff -q "/tmp/expected_${test_name}.csv" "actual/${test_name}.csv" > /dev/null 2>&1; then
         echo -e "${GREEN}PASS${NC}"
         TESTS_PASSED=$((TESTS_PASSED + 1))
         rm -f "/tmp/expected_${test_name}.csv"
@@ -83,28 +84,29 @@ run_test() {
 }
 
 # Function to run a test that expects error (exit code 1)
-run_error_test() {
+run_error_test()
+{
     local test_name="$1"
     local xlsx_file="$2"
     local options="$3"
-    
+
     echo -n "Testing $test_name... "
-    
+
     # Temporarily disable exit on error for these commands
     set +e
-    
+
     # Run Python version (expecting it to fail with exit code 1)
     # Note: options are passed as separate arguments, not as a single string
     $PYTHON_XLSX2CSV $options "$xlsx_file" > "/tmp/expected_${test_name}_stdout.txt" 2> "/tmp/expected_${test_name}_stderr.txt"
     local python_exit=$?
-    
+
     # Run C version (expecting it to fail with exit code 1)
     $C_XLSX2CSV $options "$xlsx_file" > "actual/${test_name}_stdout.txt" 2> "actual/${test_name}_stderr.txt"
     local c_exit=$?
-    
+
     # Re-enable exit on error
     set -e
-    
+
     # Check if both have the same exit code
     if [ $python_exit -ne $c_exit ]; then
         echo -e "${RED}FAIL${NC}"
@@ -112,25 +114,25 @@ run_error_test() {
         TESTS_FAILED=$((TESTS_FAILED + 1))
         return
     fi
-    
+
     # Compare stdout
-    if ! diff -q "/tmp/expected_${test_name}_stdout.txt" "actual/${test_name}_stdout.txt" >/dev/null 2>&1; then
+    if ! diff -q "/tmp/expected_${test_name}_stdout.txt" "actual/${test_name}_stdout.txt" > /dev/null 2>&1; then
         echo -e "${RED}FAIL${NC}"
         echo "  stdout differs from Python version"
         echo "  Run: diff /tmp/expected_${test_name}_stdout.txt actual/${test_name}_stdout.txt"
         TESTS_FAILED=$((TESTS_FAILED + 1))
         return
     fi
-    
+
     # Compare stderr
-    if ! diff -q "/tmp/expected_${test_name}_stderr.txt" "actual/${test_name}_stderr.txt" >/dev/null 2>&1; then
+    if ! diff -q "/tmp/expected_${test_name}_stderr.txt" "actual/${test_name}_stderr.txt" > /dev/null 2>&1; then
         echo -e "${RED}FAIL${NC}"
         echo "  stderr differs from Python version"
         echo "  Run: diff /tmp/expected_${test_name}_stderr.txt actual/${test_name}_stderr.txt"
         TESTS_FAILED=$((TESTS_FAILED + 1))
         return
     fi
-    
+
     echo -e "${GREEN}PASS${NC}"
     TESTS_PASSED=$((TESTS_PASSED + 1))
     rm -f "/tmp/expected_${test_name}_stdout.txt" "/tmp/expected_${test_name}_stderr.txt"
@@ -182,18 +184,18 @@ echo -e "\n=== Float Format Tests (CRITICAL) ==="
 if [ -f "test_data/float_format.xlsx" ]; then
     # Test --floatformat %.02f (most common use case)
     run_test "float_format_02f" "test_data/float_format.xlsx" "--floatformat %.02f"
-    
+
     # Test --floatformat with different precisions
     run_test "float_format_04f" "test_data/float_format.xlsx" "--floatformat %.04f"
     run_test "float_format_06f" "test_data/float_format.xlsx" "--floatformat %.06f"
     run_test "float_format_08f" "test_data/float_format.xlsx" "--floatformat %.08f"
-    
+
     # Test --sci-float (scientific notation)
     run_test "float_sci_float" "test_data/float_format.xlsx" "--sci-float"
-    
+
     # Test --sci-float with numbers.xlsx (has scientific notation values)
     run_test "numbers_sci_float" "test_data/numbers.xlsx" "--sci-float"
-    
+
     # Test combination: --floatformat with --sci-float (should prioritize floatformat)
     run_test "float_format_02f_sci" "test_data/float_format.xlsx" "--floatformat %.02f --sci-float"
 fi
@@ -347,4 +349,3 @@ else
     echo -e "${RED}Some tests failed${NC}"
     exit 1
 fi
-
