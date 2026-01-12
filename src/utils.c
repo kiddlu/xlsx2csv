@@ -85,18 +85,26 @@ char *column_index_to_name(int index)
         return NULL;
     }
 
-    char buffer[10];
+    if (index > 16383) {
+        return NULL;
+    }
+
+    char buffer[4];
     int  pos = 0;
     int  col = index + 1;
 
     while (col > 0) {
         int remainder = (col - 1) % 26;
-        buffer[pos++] = 'A' + remainder;
+        buffer[pos++] = 'A' + (char)remainder;
         col           = (col - 1) / 26;
+
+        if (pos >= 3) {
+            break;
+        }
     }
 
-    /* Reverse the string */
-    char *result = malloc((size_t)(pos + 1));
+    size_t result_size = (size_t)pos + 1;
+    char  *result      = malloc(result_size);
     if (result) {
         for (int i = 0; i < pos; i++) {
             result[i] = buffer[pos - 1 - i];

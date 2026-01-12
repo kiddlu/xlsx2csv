@@ -81,3 +81,14 @@ target_compile_options(xlsx2csv PRIVATE
 )
 
 target_link_libraries(xlsx2csv -lexpat -lzip -lm)
+
+# Install target - use parent's TARGET_ARCH if available
+if(DEFINED TARGET_ARCH)
+    set(INSTALL_DEST "bin/${TARGET_ARCH}")
+else()
+    set(INSTALL_DEST "bin")
+endif()
+install(TARGETS xlsx2csv
+    RUNTIME DESTINATION ${INSTALL_DEST}
+)
+
